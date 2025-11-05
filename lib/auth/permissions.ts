@@ -191,14 +191,14 @@ export async function requireScorecardPermission(
 
 /**
  * Check if user can manage team members
- * Requires admin or owner role
+ * Requires owner role
  */
 export async function canManageTeamMembers(
   teamId: string,
   userId: string,
   supabase?: Supabase
 ): Promise<boolean> {
-  return checkTeamPermission(teamId, userId, TEAM_ROLES.ADMIN, supabase)
+  return checkTeamPermission(teamId, userId, TEAM_ROLES.OWNER, supabase)
 }
 
 /**
@@ -215,14 +215,14 @@ export async function canDeleteTeam(
 
 /**
  * Check if user can create scorecards for a team
- * Requires admin or owner role
+ * Requires owner role
  */
 export async function canCreateTeamScorecard(
   teamId: string,
   userId: string,
   supabase?: Supabase
 ): Promise<boolean> {
-  return checkTeamPermission(teamId, userId, TEAM_ROLES.ADMIN, supabase)
+  return checkTeamPermission(teamId, userId, TEAM_ROLES.OWNER, supabase)
 }
 
 /**
@@ -234,4 +234,169 @@ export async function requireSystemAdmin(userId: string): Promise<void> {
   if (!isAdmin) {
     throw new Error('Unauthorized: System administrator access required')
   }
+}
+
+/**
+ * Check if user1 is the manager of user2
+ */
+export async function isUserManager(
+  managerId: string,
+  reportId: string,
+  supabase?: Supabase
+): Promise<boolean> {
+  const client = await resolveClient(supabase)
+
+  const { data: report, error } = await client
+    .from('profiles')
+    .select('manager_id')
+    .eq('id', reportId)
+    .single()
+
+  if (error || !report) {
+    return false
+  }
+
+  return report.manager_id === managerId
+}
+
+/**
+ * Get all direct reports for a user
+ */
+export async function getDirectReports(
+  userId: string,
+  supabase?: Supabase
+): Promise<string[]> {
+  const client = await resolveClient(supabase)
+
+  const { data: reports, error } = await client
+    .from('profiles')
+    .select('id')
+    .eq('manager_id', userId)
+    .eq('is_active', true)
+
+  if (error || !reports) {
+    return []
+  }
+
+  return reports.map((r) => r.id)
+}
+
+/**
+ * Check if user can view a role scorecard
+ * User can view if they:
+ * 1. Are the owner
+ * 2. Are a member with appropriate role
+ * 3. Are a system admin
+ * 4. Are the manager of the scorecard owner (for role scorecards only)
+ */
+export async function canViewRoleScorecard(
+  scorecardId: string,
+  userId: string,
+  supabase?: Supabase
+): Promise<boolean> {
+  const client = await resolveClient(supabase)
+
+  // System admins can view everything
+  if (await isSystemAdmin(userId, client)) {
+    return true
+  }
+
+  // Check if user has direct access via ownership or membership
+  const userRole = await getUserScorecardRole(scorecardId, userId, client)
+  if (userRole) {
+    return true
+  }
+
+  // Check if this is a role scorecard and user is the manager of the owner
+  const { data: scorecard, error } = await client
+    .from('scorecards')
+    .select('type, owner_user_id')
+    .eq('id', scorecardId)
+    .single()
+
+  if (error || !scorecard || scorecard.type !== 'role') {
+    return false
+  }
+
+  // Check if userId is the manager of the scorecard owner
+  return isUserManager(userId, scorecard.owner_user_id, client)
+}
+
+/**
+ * Check if user can view a team scorecard
+ * User can view if they:
+ * 1. Are a system admin
+ * 2. Own the scorecard
+ * 3. Are a member of the scorecard
+ * 4. Are the manager of the team owner (for team scorecards only)
+ */
+export async function canViewTeamScorecard(
+  scorecardId: string,
+  userId: string,
+  supabase?: Supabase
+): Promise<boolean> {
+  const client = await resolveClient(supabase)
+
+  // System admins can view everything
+  if (await isSystemAdmin(userId, client)) {
+    return true
+  }
+
+  // Check if user has direct access via ownership or membership
+  const userRole = await getUserScorecardRole(scorecardId, userId, client)
+  if (userRole) {
+    return true
+  }
+
+  // Check if this is a team scorecard and user is the manager of the team owner
+  const { data: scorecard, error } = await client
+    .from('scorecards')
+    .select('type, team_id')
+    .eq('id', scorecardId)
+    .single()
+
+  if (error || !scorecard || scorecard.type !== 'team' || !scorecard.team_id) {
+    return false
+  }
+
+  // Get the team owner (user with role='owner' in team_members)
+  const { data: teamOwnerMember, error: teamOwnerError } = await client
+    .from('team_members')
+    .select('user_id')
+    .eq('team_id', scorecard.team_id)
+    .eq('role', 'owner')
+    .single()
+
+  if (teamOwnerError || !teamOwnerMember) {
+    return false
+  }
+
+  // Check if userId is the manager of the team owner
+  return isUserManager(userId, teamOwnerMember.user_id, client)
+}
+
+/**
+ * Check if user can create a role scorecard for another user
+ * User can create if they:
+ * 1. Are creating for themselves
+ * 2. Are the manager of the target user
+ * 3. Are a system admin
+ */
+export async function canCreateRoleScorecardFor(
+  targetUserId: string,
+  currentUserId: string,
+  supabase?: Supabase
+): Promise<boolean> {
+  // Users can create their own scorecards
+  if (targetUserId === currentUserId) {
+    return true
+  }
+
+  // System admins can create for anyone
+  if (await isSystemAdmin(currentUserId, supabase)) {
+    return true
+  }
+
+  // Check if current user is manager of target user
+  return isUserManager(currentUserId, targetUserId, supabase)
 }

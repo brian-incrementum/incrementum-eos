@@ -9,7 +9,7 @@ import { revalidatePath } from 'next/cache'
 
 import { AuthError, requireUser } from '@/lib/auth/session'
 import type { Tables } from '@/lib/types/database.types'
-import { canManageTeamMembers } from '@/lib/auth/permissions'
+import { canManageTeamMembers, isSystemAdmin } from '@/lib/auth/permissions'
 import { TEAM_ROLES, type TeamRole } from '@/lib/auth/constants'
 
 type TeamMember = Tables<'team_members'>
@@ -55,7 +55,7 @@ export async function getTeamMembers(teamId: string): Promise<{
 
 /**
  * Add a member to a team
- * Requires admin or owner role
+ * Requires owner role
  */
 export async function addTeamMember(
   teamId: string,
@@ -74,7 +74,7 @@ export async function addTeamMember(
     if (!canManage) {
       return {
         data: null,
-        error: 'Only team owners and admins can add members',
+        error: 'Only team owners can add members',
       }
     }
 
@@ -133,8 +133,8 @@ export async function addTeamMember(
 
 /**
  * Update a team member's role
- * Requires admin or owner role
- * Admins cannot change owner roles
+ * Requires owner role
+ * Cannot change owner roles
  */
 export async function updateTeamMemberRole(
   teamId: string,
@@ -153,7 +153,7 @@ export async function updateTeamMemberRole(
     if (!canManage) {
       return {
         data: null,
-        error: 'Only team owners and admins can update member roles',
+        error: 'Only team owners can update member roles',
       }
     }
 
@@ -174,22 +174,6 @@ export async function updateTeamMemberRole(
       return {
         data: null,
         error: 'Cannot change the role of a team owner',
-      }
-    }
-
-    // Get current user's role
-    const { data: currentUser } = await supabase
-      .from('team_members')
-      .select('role')
-      .eq('team_id', teamId)
-      .eq('user_id', user.id)
-      .single()
-
-    // Only owners can promote to admin
-    if (newRole === TEAM_ROLES.ADMIN && currentUser?.role !== TEAM_ROLES.OWNER) {
-      return {
-        data: null,
-        error: 'Only team owners can promote members to admin',
       }
     }
 
@@ -219,8 +203,8 @@ export async function updateTeamMemberRole(
 
 /**
  * Remove a member from a team
- * Requires admin or owner role
- * Cannot remove owners
+ * Requires owner role or admin
+ * Only admins can remove owners
  */
 export async function removeTeamMember(
   teamId: string,
@@ -232,13 +216,14 @@ export async function removeTeamMember(
   try {
     const { supabase, user } = await requireUser()
 
-    // Check if current user can manage members
+    // Check if current user is admin or can manage members
+    const isAdmin = await isSystemAdmin(user.id, supabase)
     const canManage = await canManageTeamMembers(teamId, user.id, supabase)
 
-    if (!canManage) {
+    if (!isAdmin && !canManage) {
       return {
         success: false,
-        error: 'Only team owners and admins can remove members',
+        error: 'Only team owners or admins can remove members',
       }
     }
 
@@ -254,8 +239,8 @@ export async function removeTeamMember(
       return { success: false, error: 'Team member not found' }
     }
 
-    // Cannot remove owners
-    if (member.role === TEAM_ROLES.OWNER) {
+    // Only admins can remove owners
+    if (member.role === TEAM_ROLES.OWNER && !isAdmin) {
       return {
         success: false,
         error: 'Cannot remove team owner. Transfer ownership first.',
@@ -286,8 +271,8 @@ export async function removeTeamMember(
 
 /**
  * Transfer team ownership to another member
- * Current owner becomes admin
- * Only current owner can transfer ownership
+ * Current owner becomes a regular member
+ * Only system administrators can transfer ownership
  */
 export async function transferTeamOwnership(
   teamId: string,
@@ -299,18 +284,28 @@ export async function transferTeamOwnership(
   try {
     const { supabase, user } = await requireUser()
 
-    // Verify current user is the owner
-    const { data: currentMember } = await supabase
-      .from('team_members')
-      .select('role')
-      .eq('team_id', teamId)
-      .eq('user_id', user.id)
-      .single()
+    // Verify current user is a system admin
+    const isAdmin = await isSystemAdmin(user.id, supabase)
 
-    if (currentMember?.role !== TEAM_ROLES.OWNER) {
+    if (!isAdmin) {
       return {
         success: false,
-        error: 'Only the current owner can transfer ownership',
+        error: 'Only system administrators can transfer ownership',
+      }
+    }
+
+    // Get the current owner
+    const { data: currentOwner } = await supabase
+      .from('team_members')
+      .select('user_id')
+      .eq('team_id', teamId)
+      .eq('role', TEAM_ROLES.OWNER)
+      .single()
+
+    if (!currentOwner) {
+      return {
+        success: false,
+        error: 'Team has no current owner',
       }
     }
 
@@ -330,12 +325,12 @@ export async function transferTeamOwnership(
     }
 
     // Update both members in a transaction-like manner
-    // Demote current owner to admin
+    // Demote current owner to member
     const { error: demoteError } = await supabase
       .from('team_members')
-      .update({ role: TEAM_ROLES.ADMIN })
+      .update({ role: TEAM_ROLES.MEMBER })
       .eq('team_id', teamId)
-      .eq('user_id', user.id)
+      .eq('user_id', currentOwner.user_id)
 
     if (demoteError) {
       return { success: false, error: demoteError.message }
@@ -354,7 +349,7 @@ export async function transferTeamOwnership(
         .from('team_members')
         .update({ role: TEAM_ROLES.OWNER })
         .eq('team_id', teamId)
-        .eq('user_id', user.id)
+        .eq('user_id', currentOwner.user_id)
 
       return { success: false, error: promoteError.message }
     }
@@ -374,6 +369,7 @@ export async function transferTeamOwnership(
  * Leave a team
  * Members can leave anytime
  * Owners cannot leave (must transfer ownership first)
+ * System admins who are owners can leave if there are other members to transfer to
  */
 export async function leaveTeam(teamId: string): Promise<{
   success: boolean
@@ -381,6 +377,9 @@ export async function leaveTeam(teamId: string): Promise<{
 }> {
   try {
     const { supabase, user } = await requireUser()
+
+    // Check if user is system admin
+    const isAdmin = await isSystemAdmin(user.id, supabase)
 
     // Get member's role
     const { data: member } = await supabase
@@ -394,15 +393,83 @@ export async function leaveTeam(teamId: string): Promise<{
       return { success: false, error: 'You are not a member of this team' }
     }
 
-    // Owners cannot leave
+    // Handle owner leaving
     if (member.role === TEAM_ROLES.OWNER) {
+      // If admin, allow them to leave by automatically transferring ownership
+      if (isAdmin) {
+        // Find another member to transfer ownership to
+        const { data: otherMembers } = await supabase
+          .from('team_members')
+          .select('user_id, created_at')
+          .eq('team_id', teamId)
+          .neq('user_id', user.id)
+          .order('created_at', { ascending: true })
+          .limit(1)
+
+        if (!otherMembers || otherMembers.length === 0) {
+          return {
+            success: false,
+            error:
+              'Cannot leave as the only team member. Please add another member first or delete the team.',
+          }
+        }
+
+        // Automatically transfer ownership to the most senior other member
+        const newOwnerId = otherMembers[0].user_id
+
+        // Demote current owner to member
+        const { error: demoteError } = await supabase
+          .from('team_members')
+          .update({ role: TEAM_ROLES.MEMBER })
+          .eq('team_id', teamId)
+          .eq('user_id', user.id)
+
+        if (demoteError) {
+          return { success: false, error: demoteError.message }
+        }
+
+        // Promote new owner
+        const { error: promoteError } = await supabase
+          .from('team_members')
+          .update({ role: TEAM_ROLES.OWNER })
+          .eq('team_id', teamId)
+          .eq('user_id', newOwnerId)
+
+        if (promoteError) {
+          // Rollback: restore original owner
+          await supabase
+            .from('team_members')
+            .update({ role: TEAM_ROLES.OWNER })
+            .eq('team_id', teamId)
+            .eq('user_id', user.id)
+
+          return { success: false, error: promoteError.message }
+        }
+
+        // Now remove the admin as a member
+        const { error: removeError } = await supabase
+          .from('team_members')
+          .delete()
+          .eq('team_id', teamId)
+          .eq('user_id', user.id)
+
+        if (removeError) {
+          return { success: false, error: removeError.message }
+        }
+
+        revalidatePath('/teams')
+        revalidatePath(`/teams/${teamId}`)
+        return { success: true, error: null }
+      }
+
+      // Non-admins must transfer ownership manually first
       return {
         success: false,
         error: 'Team owners cannot leave. Transfer ownership first.',
       }
     }
 
-    // Remove member
+    // Regular members can leave anytime
     const { error } = await supabase
       .from('team_members')
       .delete()

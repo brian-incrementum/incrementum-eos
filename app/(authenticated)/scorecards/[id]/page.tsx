@@ -33,12 +33,13 @@ export default async function ScorecardDetailPage({
     )
   }
 
-  const { scorecard, metrics, employees } = data
+  const { scorecard, metrics, archivedMetrics = [], employees } = data
 
   return (
     <ScorecardView
       scorecard={scorecard}
       metrics={metrics}
+      archivedMetrics={archivedMetrics}
       employees={employees}
       currentUserId={user.id}
     />

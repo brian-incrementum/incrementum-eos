@@ -14,10 +14,13 @@ import {
   getInitials,
 } from '@/lib/utils/scorecard-ui-helpers'
 import { upsertMetricEntry } from '@/lib/actions/metric-entries'
-import { getLast8Periods } from '@/lib/utils/date-helpers'
+import { archiveMetric } from '@/lib/actions/metrics'
+import { getLastNPeriods, parseISODate } from '@/lib/utils/date-helpers'
 import { ContextMenu } from './context-menu'
 import { ColumnResizeHandle } from './column-resize-handle'
 import { EditMetricModal } from '../edit-metric-modal'
+import { Checkbox } from '@/components/ui/checkbox'
+import { BulkActionBar } from './bulk-action-bar'
 
 type Metric = Tables<'metrics'>
 type MetricEntry = Tables<'metric_entries'>
@@ -32,6 +35,7 @@ interface TableViewProps {
   metrics: MetricWithEntries[]
   onMetricClick: (metric: MetricWithEntries) => void
   onNoteClick: (metric: MetricWithEntries, entry: MetricEntry) => void
+  onArchiveMetric: (metric: MetricWithEntries) => void
   scorecardId: string
   employees: EmployeeWithProfile[]
   currentUserId: string
@@ -49,17 +53,19 @@ interface ContextMenuState {
   entry: MetricEntry | null
 }
 
-export function TableView({ metrics, onMetricClick, onNoteClick, scorecardId, employees, currentUserId }: TableViewProps) {
+export function TableView({ metrics, onMetricClick, onNoteClick, onArchiveMetric, scorecardId, employees, currentUserId }: TableViewProps) {
   const [editingCell, setEditingCell] = useState<EditingCell | null>(null)
   const [editValue, setEditValue] = useState('')
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null)
   const [editMetricModalOpen, setEditMetricModalOpen] = useState(false)
   const [selectedMetricForEdit, setSelectedMetricForEdit] = useState<MetricWithEntries | null>(null)
+  const [selectedMetricIds, setSelectedMetricIds] = useState<Set<string>>(new Set())
   const [columnWidths, setColumnWidths] = useState({
-    title: 200,
-    goal: 120,
-    average: 120,
-    period: 120,
+    checkbox: 40,
+    title: 160,
+    goal: 100,
+    average: 100,
+    period: 100,
   })
   const [isPending, startTransition] = useTransition()
   const inputRef = useRef<HTMLInputElement>(null)
@@ -71,6 +77,40 @@ export function TableView({ metrics, onMetricClick, onNoteClick, scorecardId, em
     }
   }, [editingCell])
 
+  // Selection helper functions
+  const toggleMetricSelection = (metricId: string) => {
+    setSelectedMetricIds((prev) => {
+      const newSet = new Set(prev)
+      if (newSet.has(metricId)) {
+        newSet.delete(metricId)
+      } else {
+        newSet.add(metricId)
+      }
+      return newSet
+    })
+  }
+
+  const toggleSelectAll = () => {
+    if (selectedMetricIds.size === metrics.length) {
+      // All selected, deselect all
+      setSelectedMetricIds(new Set())
+    } else {
+      // Some or none selected, select all
+      setSelectedMetricIds(new Set(metrics.map(m => m.id)))
+    }
+  }
+
+  const clearSelection = () => {
+    setSelectedMetricIds(new Set())
+  }
+
+  const getSelectedMetrics = () => {
+    return metrics.filter(m => selectedMetricIds.has(m.id))
+  }
+
+  const isAllSelected = metrics.length > 0 && selectedMetricIds.size === metrics.length
+  const isSomeSelected = selectedMetricIds.size > 0 && selectedMetricIds.size < metrics.length
+
   if (metrics.length === 0) {
     return (
       <div className="bg-white rounded-lg shadow p-8 text-center">
@@ -79,9 +119,9 @@ export function TableView({ metrics, onMetricClick, onNoteClick, scorecardId, em
     )
   }
 
-  // Get the last 8 periods based on cadence (generates all 8 periods, not just ones with data)
+  // Get the last N periods based on cadence (uses configured count per cadence)
   const cadence = metrics[0]?.cadence || 'weekly'
-  const displayPeriods = getLast8Periods(cadence)
+  const displayPeriods = getLastNPeriods(cadence)
 
   const handleCellClick = (metric: MetricWithEntries, periodStart: string, entry: MetricEntry | null) => {
     setEditingCell({ metricId: metric.id, periodStart })
@@ -151,17 +191,70 @@ export function TableView({ metrics, onMetricClick, onNoteClick, scorecardId, em
     setEditMetricModalOpen(true)
   }
 
+  const handleBulkArchive = async () => {
+    const selectedMetrics = getSelectedMetrics()
+    if (selectedMetrics.length === 0) return
+
+    const confirmed = window.confirm(
+      `Are you sure you want to archive ${selectedMetrics.length} ${selectedMetrics.length === 1 ? 'metric' : 'metrics'}?`
+    )
+
+    if (!confirmed) return
+
+    startTransition(async () => {
+      let errorCount = 0
+
+      for (const metric of selectedMetrics) {
+        const result = await archiveMetric(metric.id, scorecardId)
+        if (!result.success) {
+          errorCount++
+        }
+      }
+
+      if (errorCount > 0) {
+        alert(`Failed to archive ${errorCount} ${errorCount === 1 ? 'metric' : 'metrics'}`)
+      } else {
+        // Scroll to archived section after successful archive
+        setTimeout(() => {
+          const archivedSection = document.querySelector('[data-archived-metrics-section]')
+          if (archivedSection) {
+            archivedSection.scrollIntoView({ behavior: 'smooth', block: 'start' })
+          }
+        }, 500)
+      }
+
+      // Clear selection after successful archive
+      clearSelection()
+    })
+  }
+
   return (
     <>
-      <div className="bg-white rounded-lg shadow overflow-hidden">
-        <div className="overflow-x-auto">
+      <div className="bg-white rounded-lg shadow overflow-hidden w-full">
+        <div className="overflow-x-auto w-full">
           <table className="w-full text-sm border-collapse">
             <thead>
               <tr className="border-b border-gray-200">
+                {/* Checkbox Column - Sticky */}
+                <th
+                  className="sticky left-0 bg-gray-50 px-3 py-3 text-center border-r border-gray-200"
+                  style={{ width: columnWidths.checkbox, minWidth: columnWidths.checkbox, zIndex: 20 }}
+                >
+                  <Checkbox
+                    checked={isAllSelected ? true : isSomeSelected ? 'indeterminate' : false}
+                    onCheckedChange={toggleSelectAll}
+                  />
+                </th>
+
                 {/* Title Column - Sticky */}
                 <th
-                  className="sticky left-0 bg-gray-50 px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase border-r border-gray-200 relative"
-                  style={{ width: columnWidths.title, minWidth: columnWidths.title, zIndex: 20 }}
+                  className="sticky bg-gray-50 px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase border-r border-gray-200 relative"
+                  style={{
+                    width: columnWidths.title,
+                    minWidth: columnWidths.title,
+                    left: columnWidths.checkbox,
+                    zIndex: 20,
+                  }}
                 >
                   Title
                   <ColumnResizeHandle
@@ -178,7 +271,7 @@ export function TableView({ metrics, onMetricClick, onNoteClick, scorecardId, em
                   style={{
                     width: columnWidths.goal,
                     minWidth: columnWidths.goal,
-                    left: columnWidths.title,
+                    left: columnWidths.checkbox + columnWidths.title,
                     zIndex: 20,
                   }}
                 >
@@ -197,7 +290,7 @@ export function TableView({ metrics, onMetricClick, onNoteClick, scorecardId, em
                   style={{
                     width: columnWidths.average,
                     minWidth: columnWidths.average,
-                    left: columnWidths.title + columnWidths.goal,
+                    left: columnWidths.checkbox + columnWidths.title + columnWidths.goal,
                     zIndex: 20,
                   }}
                 >
@@ -212,7 +305,7 @@ export function TableView({ metrics, onMetricClick, onNoteClick, scorecardId, em
 
                 {/* Period Columns - Scrollable */}
                 {displayPeriods.map((periodStart, idx) => {
-                  const date = new Date(periodStart)
+                  const date = parseISODate(periodStart)
                   let headerContent: JSX.Element
 
                   if (cadence === 'weekly') {
@@ -276,10 +369,26 @@ export function TableView({ metrics, onMetricClick, onNoteClick, scorecardId, em
 
                 return (
                   <tr key={metric.id} className="border-b border-gray-200 hover:bg-gray-50">
+                    {/* Checkbox Cell - Sticky */}
+                    <td
+                      className="sticky left-0 bg-white px-3 py-3 text-center border-r border-gray-200 hover:bg-gray-50"
+                      style={{ width: columnWidths.checkbox, minWidth: columnWidths.checkbox, zIndex: 10 }}
+                    >
+                      <Checkbox
+                        checked={selectedMetricIds.has(metric.id)}
+                        onCheckedChange={() => toggleMetricSelection(metric.id)}
+                      />
+                    </td>
+
                     {/* Title Cell - Sticky */}
                     <td
-                      className="sticky left-0 bg-white px-4 py-3 border-r border-gray-200 hover:bg-gray-50"
-                      style={{ width: columnWidths.title, minWidth: columnWidths.title, zIndex: 10 }}
+                      className="sticky bg-white px-4 py-3 border-r border-gray-200 hover:bg-gray-50"
+                      style={{
+                        width: columnWidths.title,
+                        minWidth: columnWidths.title,
+                        left: columnWidths.checkbox,
+                        zIndex: 10,
+                      }}
                     >
                       <div className="flex items-center gap-2">
                         <div className="flex items-center justify-center w-6 h-6 rounded-full bg-gray-100 text-xs font-medium flex-shrink-0">
@@ -302,7 +411,7 @@ export function TableView({ metrics, onMetricClick, onNoteClick, scorecardId, em
                       style={{
                         width: columnWidths.goal,
                         minWidth: columnWidths.goal,
-                        left: columnWidths.title,
+                        left: columnWidths.checkbox + columnWidths.title,
                         zIndex: 10,
                       }}
                     >
@@ -315,7 +424,7 @@ export function TableView({ metrics, onMetricClick, onNoteClick, scorecardId, em
                       style={{
                         width: columnWidths.average,
                         minWidth: columnWidths.average,
-                        left: columnWidths.title + columnWidths.goal,
+                        left: columnWidths.checkbox + columnWidths.title + columnWidths.goal,
                         zIndex: 10,
                       }}
                     >
@@ -409,6 +518,12 @@ export function TableView({ metrics, onMetricClick, onNoteClick, scorecardId, em
         scorecardId={scorecardId}
         employees={employees}
         currentUserId={currentUserId}
+      />
+
+      <BulkActionBar
+        selectedCount={selectedMetricIds.size}
+        onClearSelection={clearSelection}
+        onArchive={handleBulkArchive}
       />
     </>
   )

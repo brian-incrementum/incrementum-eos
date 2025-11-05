@@ -38,6 +38,7 @@ export function EditMetricModal({
 
   // Form state
   const [name, setName] = useState('')
+  const [description, setDescription] = useState('')
   const [cadence, setCadence] = useState<'weekly' | 'monthly' | 'quarterly'>('weekly')
   const [scoringMode, setScoringMode] = useState<'at_least' | 'at_most' | 'between' | 'yes_no'>('at_least')
   const [unit, setUnit] = useState('')
@@ -51,6 +52,7 @@ export function EditMetricModal({
   useEffect(() => {
     if (metric) {
       setName(metric.name)
+      setDescription(metric.description || '')
       setCadence(metric.cadence)
       setScoringMode(metric.scoring_mode)
       setUnit(metric.unit || '')
@@ -112,6 +114,22 @@ export function EditMetricModal({
               />
             </div>
 
+            {/* Description */}
+            <div className="grid gap-2">
+              <label htmlFor="edit-description" className="text-sm font-medium">
+                Description (optional)
+              </label>
+              <textarea
+                id="edit-description"
+                name="description"
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                placeholder="Describe what this metric measures and why it's important"
+                rows={3}
+                className="flex w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 resize-none"
+              />
+            </div>
+
             {/* Cadence */}
             <div className="grid gap-2">
               <label htmlFor="edit-cadence" className="text-sm font-medium">
@@ -156,15 +174,18 @@ export function EditMetricModal({
               <label htmlFor="edit-unit" className="text-sm font-medium">
                 Unit (optional)
               </label>
-              <input
+              <select
                 id="edit-unit"
                 name="unit"
-                type="text"
                 value={unit}
                 onChange={(e) => setUnit(e.target.value)}
-                placeholder="e.g., $, %, count"
                 className="flex h-10 w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
-              />
+              >
+                <option value="">None</option>
+                <option value="$">$ (Dollar)</option>
+                <option value="%">% (Percentage)</option>
+                <option value="#"># (Count)</option>
+              </select>
             </div>
 
             {/* Owner */}

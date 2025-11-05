@@ -2,7 +2,7 @@
 
 import { useState } from "react"
 import { useRouter } from "next/navigation"
-import { MoreVertical, Crown, Shield } from "lucide-react"
+import { MoreVertical, Crown } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { AddMemberDialog } from "./add-member-dialog"
 import {
@@ -55,6 +55,7 @@ interface TeamMembersProps {
   members: TeamMember[]
   userRole: TeamRole | null
   currentUserId: string
+  isAdmin: boolean
 }
 
 export function TeamMembers({
@@ -62,6 +63,7 @@ export function TeamMembers({
   members,
   userRole,
   currentUserId,
+  isAdmin,
 }: TeamMembersProps) {
   const router = useRouter()
   const [isLoading, setIsLoading] = useState(false)
@@ -73,7 +75,8 @@ export function TeamMembers({
     memberName: string | null
   }>({ open: false, type: null, memberId: null, memberName: null })
 
-  const canManage = userRole === TEAM_ROLES.OWNER || userRole === TEAM_ROLES.ADMIN
+  const canManage = userRole === TEAM_ROLES.OWNER || isAdmin
+  const currentMemberIds = members.map((m) => m.user_id)
 
   const handleRoleChange = async (memberId: string, newRole: TeamRole) => {
     setError(null)
@@ -153,7 +156,6 @@ export function TeamMembers({
 
   const getRoleIcon = (role: string) => {
     if (role === TEAM_ROLES.OWNER) return <Crown className="size-3" />
-    if (role === TEAM_ROLES.ADMIN) return <Shield className="size-3" />
     return null
   }
 
@@ -166,7 +168,7 @@ export function TeamMembers({
               <CardTitle>Members</CardTitle>
               <CardDescription>{members.length} team members</CardDescription>
             </div>
-            {canManage && <AddMemberDialog teamId={teamId} />}
+            {canManage && <AddMemberDialog teamId={teamId} currentMemberIds={currentMemberIds} />}
           </div>
         </CardHeader>
         <CardContent>
@@ -231,7 +233,7 @@ export function TeamMembers({
                           <DropdownMenuLabel>Member Actions</DropdownMenuLabel>
                           <DropdownMenuSeparator />
 
-                          {!isOwner && userRole === TEAM_ROLES.OWNER && (
+                          {!isOwner && isAdmin && (
                             <>
                               <DropdownMenuItem
                                 onClick={() =>
@@ -249,7 +251,7 @@ export function TeamMembers({
                             </>
                           )}
 
-                          {!isOwner && (
+                          {(!isOwner || isAdmin) && (
                             <DropdownMenuItem
                               onClick={() =>
                                 setConfirmDialog({
@@ -298,7 +300,7 @@ export function TeamMembers({
               {confirmDialog.type === "remove" &&
                 `Are you sure you want to remove ${confirmDialog.memberName} from this team?`}
               {confirmDialog.type === "transfer" &&
-                `Are you sure you want to transfer ownership to ${confirmDialog.memberName}? You will become a team admin.`}
+                `Are you sure you want to transfer ownership to ${confirmDialog.memberName}? You will become a regular team member.`}
             </DialogDescription>
           </DialogHeader>
 

@@ -5,6 +5,7 @@ import { revalidatePath } from 'next/cache'
 import { AuthError, requireUser } from '@/lib/auth/session'
 import { loadScorecardListings } from '@/lib/loaders/scorecard-listings'
 import type { ScorecardTable, ScorecardWithDetails } from '@/lib/types/scorecards'
+import { canCreateRoleScorecardFor, isSystemAdmin } from '@/lib/auth/permissions'
 
 type Scorecard = ScorecardTable
 
@@ -96,8 +97,9 @@ export async function getUserScorecards(): Promise<{
 }
 
 /**
- * Create a new scorecard (Admin only)
- * Scorecards can be either team-based or role-based
+ * Create a new scorecard
+ * - Team scorecards: System admins only
+ * - Role scorecards: System admins, the user themselves, or their manager
  */
 export async function createScorecard(formData: FormData): Promise<{
   success: boolean
@@ -106,20 +108,6 @@ export async function createScorecard(formData: FormData): Promise<{
 }> {
   try {
     const { supabase, user } = await requireUser()
-
-    // Check if user is system admin
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('is_system_admin')
-      .eq('id', user.id)
-      .single()
-
-    if (!profile?.is_system_admin) {
-      return {
-        success: false,
-        error: 'Only system administrators can create scorecards',
-      }
-    }
 
     // Validate input
     const type = formData.get('type') as 'team' | 'role'
@@ -133,6 +121,28 @@ export async function createScorecard(formData: FormData): Promise<{
 
     if (!ownerUserId) {
       return { success: false, error: 'Owner user ID is required' }
+    }
+
+    // Check permissions based on scorecard type
+    const isAdmin = await isSystemAdmin(user.id, supabase)
+
+    if (type === 'team') {
+      // Only system admins can create team scorecards
+      if (!isAdmin) {
+        return {
+          success: false,
+          error: 'Only system administrators can create team scorecards',
+        }
+      }
+    } else if (type === 'role') {
+      // For role scorecards: must be admin, the user themselves, or their manager
+      const canCreate = await canCreateRoleScorecardFor(ownerUserId, user.id, supabase)
+      if (!canCreate) {
+        return {
+          success: false,
+          error: 'You can only create role scorecards for yourself or your direct reports',
+        }
+      }
     }
 
     // Validate team scorecard

@@ -73,8 +73,67 @@ export async function loadScorecardAggregateViaRPC({
       }
     }
 
+    // Fetch archived metrics separately (RPC doesn't include them yet)
+    const {
+      data: archivedMetricsData,
+      error: archivedMetricsError,
+    } = await supabase
+      .from('metrics')
+      .select(`
+        *,
+        owner:profiles!metrics_owner_user_id_fkey(id, full_name, email, avatar_url)
+      `)
+      .eq('scorecard_id', scorecardId)
+      .eq('is_archived', true)
+      .order('archived_at', { ascending: false })
+
+    if (archivedMetricsError) {
+      console.error('Error loading archived metrics:', archivedMetricsError)
+    }
+
+    // Load entries for archived metrics
+    const archivedMetrics = archivedMetricsData || []
+    const archivedMetricIds = archivedMetrics.map((m) => m.id)
+
+    let archivedMetricsWithEntries = archivedMetrics.map((metric: any) => ({
+      ...metric,
+      entries: [],
+      owner: metric.owner || null,
+    }))
+
+    if (archivedMetricIds.length > 0) {
+      const {
+        data: archivedEntriesData,
+        error: archivedEntriesError,
+      } = await supabase
+        .from('metric_entries')
+        .select('*')
+        .in('metric_id', archivedMetricIds)
+        .order('period_start', { ascending: false })
+
+      if (!archivedEntriesError && archivedEntriesData) {
+        const entriesByMetricId = archivedEntriesData.reduce<Map<string, any[]>>((acc, entry) => {
+          const existing = acc.get(entry.metric_id) || []
+          existing.push(entry)
+          acc.set(entry.metric_id, existing)
+          return acc
+        }, new Map())
+
+        archivedMetricsWithEntries = archivedMetrics.map((metric: any) => ({
+          ...metric,
+          entries: entriesByMetricId.get(metric.id) || [],
+          owner: metric.owner || null,
+        }))
+      }
+    }
+
+    const data: ScorecardAggregate = {
+      ...result.data,
+      archivedMetrics: archivedMetricsWithEntries,
+    }
+
     return {
-      data: result.data,
+      data,
       error: null,
     }
   } catch (error) {

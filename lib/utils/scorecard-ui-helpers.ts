@@ -1,5 +1,6 @@
 import type { Tables } from '@/lib/types/database.types'
 import { calculateScore } from './score-helpers'
+import { parseISODate } from './date-helpers'
 
 type Metric = Tables<'metrics'>
 type MetricEntry = Tables<'metric_entries'>
@@ -124,7 +125,7 @@ export function getAverage(entries: MetricEntry[]): number {
  * Format date range for week (e.g., "Sep 2 - Sep 8")
  */
 export function formatDateRange(dateStr: string): string {
-  const date = new Date(dateStr)
+  const date = parseISODate(dateStr)
   const endDate = new Date(date)
   endDate.setDate(date.getDate() + 6)
 
@@ -138,7 +139,7 @@ export function formatDateRange(dateStr: string): string {
  * Format date for display (e.g., "Sep 2")
  */
 export function formatDate(dateStr: string): string {
-  const date = new Date(dateStr)
+  const date = parseISODate(dateStr)
   return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
 }
 
@@ -146,7 +147,7 @@ export function formatDate(dateStr: string): string {
  * Format month for display (e.g., "Sep 2025")
  */
 export function formatMonth(dateStr: string): string {
-  const date = new Date(dateStr)
+  const date = parseISODate(dateStr)
   return date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
 }
 
@@ -154,7 +155,7 @@ export function formatMonth(dateStr: string): string {
  * Format quarter for display (e.g., "Q3 2025")
  */
 export function formatQuarter(dateStr: string): string {
-  const date = new Date(dateStr)
+  const date = parseISODate(dateStr)
   const quarter = Math.floor(date.getMonth() / 3) + 1
   const year = date.getFullYear()
   return `Q${quarter} ${year}`

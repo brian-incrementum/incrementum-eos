@@ -18,6 +18,7 @@ interface MetricWithEntries extends Metric {
 export interface ScorecardAggregate {
   scorecard: Scorecard
   metrics: MetricWithEntries[]
+  archivedMetrics: MetricWithEntries[]
   employees: EmployeeWithProfile[]
 }
 
@@ -86,6 +87,7 @@ export async function loadScorecardAggregate({
     .select('*')
     .eq('scorecard_id', scorecardId)
     .eq('is_active', true)
+    .eq('is_archived', false)
     .order('display_order', { ascending: true })
 
   if (metricsError) {
@@ -153,12 +155,90 @@ export async function loadScorecardAggregate({
     owner: metric.owner_user_id ? ownersMap.get(metric.owner_user_id) ?? null : null,
   }))
 
+  // Load archived metrics
+  const {
+    data: archivedMetricsData,
+    error: archivedMetricsError,
+  } = await supabase
+    .from('metrics')
+    .select('*')
+    .eq('scorecard_id', scorecardId)
+    .eq('is_archived', true)
+    .order('archived_at', { ascending: false })
+
+  if (archivedMetricsError) {
+    console.error('Error loading archived metrics', archivedMetricsError)
+  }
+
+  const archivedMetrics = archivedMetricsData ?? []
+  const archivedMetricIds = archivedMetrics.map((metric) => metric.id)
+
+  // Load entries for archived metrics (optional, can be empty)
+  let archivedMetricEntries: MetricEntry[] = []
+  if (archivedMetricIds.length > 0) {
+    const {
+      data: archivedEntriesData,
+      error: archivedEntriesError,
+    } = await supabase
+      .from('metric_entries')
+      .select('*')
+      .in('metric_id', archivedMetricIds)
+      .order('period_start', { ascending: false })
+
+    if (archivedEntriesError) {
+      console.error('Error loading archived metric entries', archivedEntriesError)
+    } else if (archivedEntriesData) {
+      archivedMetricEntries = archivedEntriesData
+    }
+  }
+
+  // Load owner profiles for archived metrics
+  const archivedOwnerIds = Array.from(
+    new Set(
+      archivedMetrics
+        .map((metric) => metric.owner_user_id)
+        .filter((value): value is string => Boolean(value))
+    )
+  )
+
+  if (archivedOwnerIds.length > 0) {
+    const {
+      data: archivedOwnerProfiles,
+      error: archivedOwnerProfilesError,
+    } = await supabase
+      .from('profiles')
+      .select('id, full_name, email, avatar_url')
+      .in('id', archivedOwnerIds)
+
+    if (archivedOwnerProfilesError) {
+      console.error('Error loading archived metric owner profiles', archivedOwnerProfilesError)
+    } else {
+      archivedOwnerProfiles?.forEach((profile) => {
+        ownersMap.set(profile.id, profile as Profile)
+      })
+    }
+  }
+
+  const archivedEntriesByMetricId = archivedMetricEntries.reduce<Map<string, MetricEntry[]>>((acc, entry) => {
+    const existing = acc.get(entry.metric_id) ?? []
+    existing.push(entry)
+    acc.set(entry.metric_id, existing)
+    return acc
+  }, new Map())
+
+  const archivedMetricsWithEntries: MetricWithEntries[] = archivedMetrics.map((metric) => ({
+    ...metric,
+    entries: archivedEntriesByMetricId.get(metric.id) ?? [],
+    owner: metric.owner_user_id ? ownersMap.get(metric.owner_user_id) ?? null : null,
+  }))
+
   const employees = await loadEmployeesForScorecard({ supabase, scorecard })
 
   return {
     data: {
       scorecard,
       metrics: metricsWithEntries,
+      archivedMetrics: archivedMetricsWithEntries,
       employees,
     },
     error: null,

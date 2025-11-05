@@ -1,7 +1,7 @@
 import Link from "next/link"
 import { requireUser } from "@/lib/auth/session"
 import { getTeamDetails } from "@/lib/actions/teams"
-import { getUserTeamRole } from "@/lib/auth/permissions"
+import { getUserTeamRole, isSystemAdmin } from "@/lib/auth/permissions"
 import { TeamHeader } from "./team-header"
 import { TeamMembers } from "./team-members"
 import { TeamScorecards } from "./team-scorecards"
@@ -41,8 +41,9 @@ export default async function TeamDetailPage({
     )
   }
 
-  // Get current user's role
+  // Get current user's role and admin status
   const userRole = await getUserTeamRole(id, user.id)
+  const isAdmin = await isSystemAdmin(user.id)
 
   return (
     <div className="space-y-6">
@@ -69,6 +70,7 @@ export default async function TeamDetailPage({
             members={team.members}
             userRole={userRole}
             currentUserId={user.id}
+            isAdmin={isAdmin}
           />
         </div>
 

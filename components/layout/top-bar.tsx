@@ -1,5 +1,4 @@
 import { getUser } from "@/lib/auth/session"
-import { SidebarTrigger } from "@/components/ui/sidebar"
 import { UserDropdown } from "./user-dropdown"
 
 export async function TopBar() {
@@ -17,8 +16,7 @@ export async function TopBar() {
     .single()
 
   return (
-    <header className="flex h-16 items-center gap-4 border-b px-6">
-      <SidebarTrigger />
+    <header className="sticky top-0 z-40 flex h-16 items-center gap-4 border-b bg-white px-6">
       <div className="flex-1" />
       <UserDropdown user={user} profile={profile} />
     </header>

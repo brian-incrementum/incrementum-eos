@@ -33,6 +33,7 @@ export function AddMetricModal({
 
   // Form state
   const [name, setName] = useState('')
+  const [description, setDescription] = useState('')
   const [cadence, setCadence] = useState<'weekly' | 'monthly' | 'quarterly'>('weekly')
   const [scoringMode, setScoringMode] = useState<'at_least' | 'at_most' | 'between' | 'yes_no'>('at_least')
   const [unit, setUnit] = useState('')
@@ -44,6 +45,7 @@ export function AddMetricModal({
 
   const resetForm = () => {
     setName('')
+    setDescription('')
     setCadence('weekly')
     setScoringMode('at_least')
     setUnit('')
@@ -102,6 +104,22 @@ export function AddMetricModal({
               />
             </div>
 
+            {/* Description */}
+            <div className="grid gap-2">
+              <label htmlFor="description" className="text-sm font-medium">
+                Description (optional)
+              </label>
+              <textarea
+                id="description"
+                name="description"
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                placeholder="Describe what this metric measures and why it's important"
+                rows={3}
+                className="flex w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 resize-none"
+              />
+            </div>
+
             {/* Cadence */}
             <div className="grid gap-2">
               <label htmlFor="cadence" className="text-sm font-medium">
@@ -146,15 +164,18 @@ export function AddMetricModal({
               <label htmlFor="unit" className="text-sm font-medium">
                 Unit (optional)
               </label>
-              <input
+              <select
                 id="unit"
                 name="unit"
-                type="text"
                 value={unit}
                 onChange={(e) => setUnit(e.target.value)}
-                placeholder="e.g., $, %, count"
                 className="flex h-10 w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
-              />
+              >
+                <option value="">None</option>
+                <option value="$">$ (Dollar)</option>
+                <option value="%">% (Percentage)</option>
+                <option value="#"># (Count)</option>
+              </select>
             </div>
 
             {/* Owner */}

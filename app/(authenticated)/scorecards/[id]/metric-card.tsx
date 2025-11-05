@@ -257,9 +257,9 @@ export function MetricCard({
         </button>
         <button
           onClick={() => onDelete(metric)}
-          className="flex-1 inline-flex justify-center items-center px-3 py-2 border border-red-300 shadow-sm text-sm font-medium rounded-md text-red-700 bg-white hover:bg-red-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
+          className="flex-1 inline-flex justify-center items-center px-3 py-2 border border-orange-300 shadow-sm text-sm font-medium rounded-md text-orange-700 bg-white hover:bg-orange-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-orange-500"
         >
-          Delete
+          Archive
         </button>
       </div>
     </div>

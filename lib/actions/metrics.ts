@@ -20,6 +20,7 @@ export async function createMetric(
 
     // Extract and validate form data
     const name = formData.get('name') as string
+    const description = (formData.get('description') as string) || null
     const cadence = formData.get('cadence') as 'weekly' | 'monthly' | 'quarterly'
     const scoringMode = formData.get('scoring_mode') as 'at_least' | 'at_most' | 'between' | 'yes_no'
     const unit = (formData.get('unit') as string) || null
@@ -84,6 +85,7 @@ export async function createMetric(
       .insert({
         scorecard_id: scorecardId,
         name: name.trim(),
+        description,
         cadence,
         scoring_mode: scoringMode,
         target_value: targetValue,
@@ -159,6 +161,7 @@ export async function updateMetric(
 
     // Extract and validate form data
     const name = formData.get('name') as string
+    const description = (formData.get('description') as string) || null
     const cadence = formData.get('cadence') as 'weekly' | 'monthly' | 'quarterly'
     const scoringMode = formData.get('scoring_mode') as 'at_least' | 'at_most' | 'between' | 'yes_no'
     const unit = (formData.get('unit') as string) || null
@@ -203,6 +206,7 @@ export async function updateMetric(
       .from('metrics')
       .update({
         name: name.trim(),
+        description,
         cadence,
         scoring_mode: scoringMode,
         target_value: targetValue,
@@ -262,28 +266,35 @@ export async function updateMetric(
 }
 
 /**
- * Soft delete a metric
+ * Archive a metric (soft delete with metadata)
  */
-export async function deleteMetric(
+export async function archiveMetric(
   metricId: string,
-  scorecardId: string
+  scorecardId: string,
+  archiveReason?: string
 ): Promise<{
   success: boolean
   error?: string
 }> {
   try {
-    const { supabase } = await requireUser()
+    const { supabase, user } = await requireUser()
 
-    // Soft delete (set is_active = false)
-    const { error: deleteError } = await supabase
+    // Archive the metric
+    const { error: archiveError } = await supabase
       .from('metrics')
-      .update({ is_active: false })
+      .update({
+        is_active: false,
+        is_archived: true,
+        archived_at: new Date().toISOString(),
+        archived_by: user.id,
+        archive_reason: archiveReason || null,
+      })
       .eq('id', metricId)
       .eq('scorecard_id', scorecardId)
 
-    if (deleteError) {
-      console.error('Error deleting metric:', deleteError)
-      return { success: false, error: 'Failed to delete metric' }
+    if (archiveError) {
+      console.error('Error archiving metric:', archiveError)
+      return { success: false, error: 'Failed to archive metric' }
     }
 
     // Revalidate the scorecard page
@@ -295,7 +306,106 @@ export async function deleteMetric(
       return { success: false, error: 'Not authenticated' }
     }
 
-    console.error('Unexpected error in deleteMetric:', error)
+    console.error('Unexpected error in archiveMetric:', error)
     return { success: false, error: 'An unexpected error occurred' }
   }
+}
+
+/**
+ * Restore an archived metric
+ */
+export async function restoreMetric(
+  metricId: string,
+  scorecardId: string
+): Promise<{
+  success: boolean
+  error?: string
+}> {
+  try {
+    const { supabase } = await requireUser()
+
+    // Restore the metric
+    const { error: restoreError } = await supabase
+      .from('metrics')
+      .update({
+        is_active: true,
+        is_archived: false,
+        archived_at: null,
+        archived_by: null,
+        archive_reason: null,
+      })
+      .eq('id', metricId)
+      .eq('scorecard_id', scorecardId)
+
+    if (restoreError) {
+      console.error('Error restoring metric:', restoreError)
+      return { success: false, error: 'Failed to restore metric' }
+    }
+
+    // Revalidate the scorecard page
+    revalidatePath(`/scorecards/${scorecardId}`)
+
+    return { success: true }
+  } catch (error) {
+    if (error instanceof AuthError) {
+      return { success: false, error: 'Not authenticated' }
+    }
+
+    console.error('Unexpected error in restoreMetric:', error)
+    return { success: false, error: 'An unexpected error occurred' }
+  }
+}
+
+/**
+ * Permanently delete a metric (hard delete)
+ * WARNING: This will cascade delete all metric entries
+ */
+export async function hardDeleteMetric(
+  metricId: string,
+  scorecardId: string
+): Promise<{
+  success: boolean
+  error?: string
+}> {
+  try {
+    const { supabase } = await requireUser()
+
+    // Permanently delete the metric
+    const { error: deleteError } = await supabase
+      .from('metrics')
+      .delete()
+      .eq('id', metricId)
+      .eq('scorecard_id', scorecardId)
+
+    if (deleteError) {
+      console.error('Error permanently deleting metric:', deleteError)
+      return { success: false, error: 'Failed to permanently delete metric' }
+    }
+
+    // Revalidate the scorecard page
+    revalidatePath(`/scorecards/${scorecardId}`)
+
+    return { success: true }
+  } catch (error) {
+    if (error instanceof AuthError) {
+      return { success: false, error: 'Not authenticated' }
+    }
+
+    console.error('Unexpected error in hardDeleteMetric:', error)
+    return { success: false, error: 'An unexpected error occurred' }
+  }
+}
+
+/**
+ * Soft delete a metric (legacy function - use archiveMetric instead)
+ * @deprecated Use archiveMetric instead
+ */
+export async function deleteMetric(
+  metricId: string,
+  scorecardId: string
+): Promise<{
+  success: boolean
+  error?: string
+}> {
+  return archiveMetric(metricId, scorecardId)
 }

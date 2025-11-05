@@ -6,7 +6,7 @@ import type { EmployeeWithProfile } from '@/lib/actions/employees'
 import { MetricCard } from './metric-card'
 import { AddMetricModal } from './add-metric-modal'
 import { EditMetricModal } from './edit-metric-modal'
-import { DeleteMetricDialog } from './delete-metric-dialog'
+import { ArchiveMetricDialog } from './archive-metric-dialog'
 import { MetricsEmptyState } from './metrics-empty-state'
 
 type Metric = Tables<'metrics'>
@@ -29,7 +29,7 @@ export function MetricsSection({
 }: MetricsSectionProps) {
   const [isAddModalOpen, setIsAddModalOpen] = useState(false)
   const [isEditModalOpen, setIsEditModalOpen] = useState(false)
-  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
+  const [isArchiveDialogOpen, setIsArchiveDialogOpen] = useState(false)
   const [selectedMetric, setSelectedMetric] = useState<Metric | null>(null)
 
   const handleEditClick = (metric: Metric) => {
@@ -39,7 +39,7 @@ export function MetricsSection({
 
   const handleDeleteClick = (metric: Metric) => {
     setSelectedMetric(metric)
-    setIsDeleteDialogOpen(true)
+    setIsArchiveDialogOpen(true)
   }
 
   const handleAddClick = () => {
@@ -112,9 +112,9 @@ export function MetricsSection({
         currentUserId={currentUserId}
       />
 
-      <DeleteMetricDialog
-        open={isDeleteDialogOpen}
-        onOpenChange={setIsDeleteDialogOpen}
+      <ArchiveMetricDialog
+        open={isArchiveDialogOpen}
+        onOpenChange={setIsArchiveDialogOpen}
         metric={selectedMetric}
         scorecardId={scorecardId}
       />

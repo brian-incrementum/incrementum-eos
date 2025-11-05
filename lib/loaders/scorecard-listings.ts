@@ -46,6 +46,8 @@ export async function loadScorecardListings({
     { data: scorecardsData, error: scorecardsError },
     { data: memberRows, error: membershipError },
     { data: metricRows, error: metricsError },
+    { data: directReports, error: directReportsError },
+    { data: teamOwners, error: teamOwnersError },
   ] = await Promise.all([
     supabase
       .from('scorecards')
@@ -67,6 +69,16 @@ export async function loadScorecardListings({
       .from('metrics')
       .select('scorecard_id, owner_user_id')
       .eq('is_active', true),
+    // Get user's direct reports (people who report to this user)
+    supabase
+      .from('profiles')
+      .select('id')
+      .eq('manager_id', userId),
+    // Get all team owners
+    supabase
+      .from('team_members')
+      .select('team_id, user_id')
+      .eq('role', 'owner'),
   ])
 
   if (scorecardsError) {
@@ -86,14 +98,48 @@ export async function loadScorecardListings({
     console.error('Error fetching scorecard metrics', metricsError)
   }
 
+  if (directReportsError) {
+    console.error('Error fetching direct reports', directReportsError)
+  }
+
+  if (teamOwnersError) {
+    console.error('Error fetching team owners', teamOwnersError)
+  }
+
   const yourScorecardIds = new Set<string>()
   const metricCountByScorecard = new Map<string, number>()
+
+  // Create a set of direct report user IDs
+  const directReportIds = new Set<string>()
+  directReports?.forEach((profile) => {
+    directReportIds.add(profile.id)
+  })
+
+  // Create a map of team_id -> owner_user_id
+  const teamOwnerByTeamId = new Map<string, string>()
+  teamOwners?.forEach((teamMember) => {
+    if (teamMember.team_id && teamMember.user_id) {
+      teamOwnerByTeamId.set(teamMember.team_id, teamMember.user_id)
+    }
+  })
 
   const scorecards = (scorecardsData ?? []) as ScorecardRow[]
 
   scorecards.forEach((scorecard) => {
     if (scorecard.owner_user_id === userId) {
       yourScorecardIds.add(scorecard.id)
+    }
+
+    // Check if this is a team scorecard where the user manages the team owner
+    if (
+      scorecard.type === 'team' &&
+      scorecard.team_id &&
+      teamOwnerByTeamId.has(scorecard.team_id)
+    ) {
+      const teamOwnerId = teamOwnerByTeamId.get(scorecard.team_id)
+      if (teamOwnerId && directReportIds.has(teamOwnerId)) {
+        yourScorecardIds.add(scorecard.id)
+      }
     }
   })
 

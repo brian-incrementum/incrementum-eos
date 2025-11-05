@@ -245,16 +245,46 @@ export async function getTeamDetails(teamId: string): Promise<{
 
 /**
  * Create a new team
+ * For admins: can specify owner and members
+ * For regular users: automatically become owner
  */
 export async function createTeam(data: {
   name: string
   description?: string
+  ownerId?: string
+  memberIds?: string[]
 }): Promise<{
   data: Team | null
   error: string | null
 }> {
   try {
     const { supabase, user } = await requireUser()
+
+    // Check if user is admin
+    const isAdmin = await isSystemAdmin(user.id, supabase)
+
+    // Determine the owner
+    const ownerId = data.ownerId || user.id
+
+    // If non-admin tries to set a different owner, reject
+    if (!isAdmin && data.ownerId && data.ownerId !== user.id) {
+      return { data: null, error: 'Only system administrators can create teams for others' }
+    }
+
+    // Verify owner exists and is active
+    const { data: ownerProfile, error: ownerError } = await supabase
+      .from('profiles')
+      .select('id, is_active')
+      .eq('id', ownerId)
+      .single()
+
+    if (ownerError || !ownerProfile) {
+      return { data: null, error: 'Selected owner not found' }
+    }
+
+    if (!ownerProfile.is_active) {
+      return { data: null, error: 'Selected owner account is inactive' }
+    }
 
     // Create team
     const { data: team, error: teamError } = await supabase
@@ -271,14 +301,34 @@ export async function createTeam(data: {
       return { data: null, error: teamError.message }
     }
 
-    // Add creator as team owner
+    // Prepare members to add
+    const membersToAdd: { team_id: string; user_id: string; role: string }[] = []
+
+    // Add owner
+    membersToAdd.push({
+      team_id: team.id,
+      user_id: ownerId,
+      role: TEAM_ROLES.OWNER,
+    })
+
+    // Add additional members if specified
+    if (data.memberIds && data.memberIds.length > 0) {
+      // Filter out owner from members list to avoid duplicates
+      const uniqueMemberIds = data.memberIds.filter(id => id !== ownerId)
+
+      for (const memberId of uniqueMemberIds) {
+        membersToAdd.push({
+          team_id: team.id,
+          user_id: memberId,
+          role: TEAM_ROLES.MEMBER,
+        })
+      }
+    }
+
+    // Insert all members
     const { error: memberError } = await supabase
       .from('team_members')
-      .insert({
-        team_id: team.id,
-        user_id: user.id,
-        role: TEAM_ROLES.OWNER,
-      })
+      .insert(membersToAdd)
 
     if (memberError) {
       // Rollback: delete team if member creation fails
@@ -299,7 +349,7 @@ export async function createTeam(data: {
 
 /**
  * Update team details
- * Requires admin or owner role
+ * Requires owner role
  */
 export async function updateTeam(
   teamId: string,
@@ -315,7 +365,7 @@ export async function updateTeam(
     const { supabase, user } = await requireUser()
 
     // Check permission
-    await requireTeamPermission(teamId, user.id, TEAM_ROLES.ADMIN, supabase)
+    await requireTeamPermission(teamId, user.id, TEAM_ROLES.OWNER, supabase)
 
     // Update team
     const { data: team, error } = await supabase

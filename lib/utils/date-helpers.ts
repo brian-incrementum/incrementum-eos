@@ -1,3 +1,5 @@
+import { PERIOD_COUNTS } from './constants'
+
 /**
  * Get the start date for the current period based on cadence
  */
@@ -38,7 +40,7 @@ export function formatPeriodDate(
   date: Date | string,
   cadence: 'weekly' | 'monthly' | 'quarterly'
 ): string {
-  const d = typeof date === 'string' ? new Date(date) : date
+  const d = typeof date === 'string' ? parseISODate(date) : date
 
   switch (cadence) {
     case 'weekly': {
@@ -75,16 +77,30 @@ export function toISODate(date: Date): string {
 }
 
 /**
- * Get the last 8 periods (including current) for a given cadence
- * Returns dates in descending order (newest first)
+ * Parse an ISO date string (YYYY-MM-DD) to a Date object in local timezone
+ * Avoids timezone conversion issues that occur with new Date(isoString)
  */
-export function getLast8Periods(
-  cadence: 'weekly' | 'monthly' | 'quarterly'
+export function parseISODate(isoDateString: string): Date {
+  const [year, month, day] = isoDateString.split('-').map(Number)
+  return new Date(year, month - 1, day)
+}
+
+/**
+ * Get the last N periods (including current) for a given cadence
+ * Returns dates in descending order (newest first)
+ *
+ * @param cadence - The period cadence (weekly, monthly, quarterly)
+ * @param count - Optional number of periods to return. Defaults to PERIOD_COUNTS[cadence]
+ */
+export function getLastNPeriods(
+  cadence: 'weekly' | 'monthly' | 'quarterly',
+  count?: number
 ): string[] {
   const periods: string[] = []
   const current = getCurrentPeriodStart(cadence)
+  const periodCount = count ?? PERIOD_COUNTS[cadence]
 
-  for (let i = 0; i < 8; i++) {
+  for (let i = 0; i < periodCount; i++) {
     const period = new Date(current)
 
     switch (cadence) {
@@ -108,4 +124,14 @@ export function getLast8Periods(
   }
 
   return periods
+}
+
+/**
+ * @deprecated Use getLastNPeriods() instead
+ * Backward compatibility export
+ */
+export function getLast8Periods(
+  cadence: 'weekly' | 'monthly' | 'quarterly'
+): string[] {
+  return getLastNPeriods(cadence, 8)
 }

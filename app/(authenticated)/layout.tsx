@@ -15,12 +15,14 @@ export default async function AuthenticatedLayout({
   const isAdmin = user ? await isSystemAdmin(user.id) : false
 
   return (
-    <SidebarProvider>
-      <AppSidebar isSystemAdmin={isAdmin} />
-      <main className="flex min-h-screen w-full flex-col">
-        <TopBar />
-        <div className="flex-1 p-6">{children}</div>
-      </main>
+    <SidebarProvider defaultOpen={true}>
+      <div className="grid min-h-screen w-full md:grid-cols-[256px_1fr]">
+        <AppSidebar isSystemAdmin={isAdmin} />
+        <div className="flex min-h-screen flex-col">
+          <TopBar />
+          <div className="flex-1 min-h-0 p-6 overflow-x-hidden">{children}</div>
+        </div>
+      </div>
     </SidebarProvider>
   )
 }

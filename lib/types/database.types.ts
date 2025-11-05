@@ -59,6 +59,7 @@ export type Database = {
           full_name: string | null
           id: string
           manager: string | null
+          manager_email: string | null
           photo: Json | null
           position: string | null
           slack_id: string | null
@@ -74,6 +75,7 @@ export type Database = {
           full_name?: string | null
           id: string
           manager?: string | null
+          manager_email?: string | null
           photo?: Json | null
           position?: string | null
           slack_id?: string | null
@@ -89,6 +91,7 @@ export type Database = {
           full_name?: string | null
           id?: string
           manager?: string | null
+          manager_email?: string | null
           photo?: Json | null
           position?: string | null
           slack_id?: string | null
@@ -145,12 +148,16 @@ export type Database = {
       }
       metrics: {
         Row: {
+          archive_reason: string | null
+          archived_at: string | null
+          archived_by: string | null
           cadence: Database["public"]["Enums"]["metric_cadence"]
           created_at: string
           description: string | null
           display_order: number
           id: string
           is_active: boolean
+          is_archived: boolean
           name: string
           owner_user_id: string | null
           scorecard_id: string
@@ -162,12 +169,16 @@ export type Database = {
           unit: string | null
         }
         Insert: {
+          archive_reason?: string | null
+          archived_at?: string | null
+          archived_by?: string | null
           cadence?: Database["public"]["Enums"]["metric_cadence"]
           created_at?: string
           description?: string | null
           display_order?: number
           id?: string
           is_active?: boolean
+          is_archived?: boolean
           name: string
           owner_user_id?: string | null
           scorecard_id: string
@@ -179,12 +190,16 @@ export type Database = {
           unit?: string | null
         }
         Update: {
+          archive_reason?: string | null
+          archived_at?: string | null
+          archived_by?: string | null
           cadence?: Database["public"]["Enums"]["metric_cadence"]
           created_at?: string
           description?: string | null
           display_order?: number
           id?: string
           is_active?: boolean
+          is_archived?: boolean
           name?: string
           owner_user_id?: string | null
           scorecard_id?: string
@@ -196,6 +211,13 @@ export type Database = {
           unit?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "metrics_archived_by_fkey"
+            columns: ["archived_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "metrics_owner_user_id_fkey"
             columns: ["owner_user_id"]
@@ -221,6 +243,7 @@ export type Database = {
           id: string
           is_active: boolean
           is_system_admin: boolean
+          manager_id: string | null
           updated_at: string
         }
         Insert: {
@@ -231,6 +254,7 @@ export type Database = {
           id: string
           is_active?: boolean
           is_system_admin?: boolean
+          manager_id?: string | null
           updated_at?: string
         }
         Update: {
@@ -241,9 +265,18 @@ export type Database = {
           id?: string
           is_active?: boolean
           is_system_admin?: boolean
+          manager_id?: string | null
           updated_at?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "profiles_manager_id_fkey"
+            columns: ["manager_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       roles: {
         Row: {
@@ -510,13 +543,14 @@ export type Database = {
           synced_count: number
         }[]
       }
+      sync_manager_relationships: { Args: never; Returns: undefined }
     }
     Enums: {
       metric_cadence: "weekly" | "monthly" | "quarterly"
       metric_scoring_mode: "at_least" | "at_most" | "between" | "yes_no"
       scorecard_member_role: "owner" | "editor" | "viewer"
       scorecard_type: "personal" | "team" | "role"
-      team_member_role: "owner" | "member" | "admin"
+      team_member_role: "owner" | "member"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -648,7 +682,7 @@ export const Constants = {
       metric_scoring_mode: ["at_least", "at_most", "between", "yes_no"],
       scorecard_member_role: ["owner", "editor", "viewer"],
       scorecard_type: ["personal", "team", "role"],
-      team_member_role: ["owner", "member", "admin"],
+      team_member_role: ["owner", "member"],
     },
   },
 } as const
