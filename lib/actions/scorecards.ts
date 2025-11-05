@@ -1,0 +1,412 @@
+'use server'
+
+import { createClient } from '@/lib/supabase/server'
+import { revalidatePath } from 'next/cache'
+import { redirect } from 'next/navigation'
+import type { Tables } from '@/lib/types/database.types'
+
+type Scorecard = Tables<'scorecards'>
+type Profile = Tables<'profiles'>
+type Team = Tables<'teams'>
+type Role = Tables<'roles'>
+
+export interface ScorecardWithDetails extends Scorecard {
+  owner: Profile | null
+  team: Team | null
+  role: Role | null
+  metric_count: number
+}
+
+/**
+ * Get organized scorecards with enhanced details
+ * Returns two categories: your scorecards and company scorecards
+ */
+export async function getOrganizedScorecards(): Promise<{
+  yourScorecards: ScorecardWithDetails[]
+  companyScorecards: ScorecardWithDetails[]
+  error: string | null
+}> {
+  try {
+    const supabase = await createClient()
+
+    // Get current user
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
+
+    if (!user) {
+      return { yourScorecards: [], companyScorecards: [], error: 'Not authenticated' }
+    }
+
+    // Fetch all scorecard IDs where user is involved
+    // 1. Scorecards user owns
+    const { data: ownedScorecardIds } = await supabase
+      .from('scorecards')
+      .select('id')
+      .eq('is_active', true)
+      .eq('owner_user_id', user.id)
+
+    // 2. Scorecards where user is a member
+    const { data: memberScorecardIds } = await supabase
+      .from('scorecard_members')
+      .select('scorecard_id')
+      .eq('user_id', user.id)
+
+    // 3. Scorecards where user owns metrics
+    const { data: metricOwnerScorecardIds } = await supabase
+      .from('metrics')
+      .select('scorecard_id')
+      .eq('owner_user_id', user.id)
+      .eq('is_active', true)
+
+    // Combine all "your scorecard" IDs
+    const yourScorecardIds = new Set<string>()
+    ownedScorecardIds?.forEach((s) => yourScorecardIds.add(s.id))
+    memberScorecardIds?.forEach((m) => yourScorecardIds.add(m.scorecard_id))
+    metricOwnerScorecardIds?.forEach((m) => yourScorecardIds.add(m.scorecard_id))
+
+    // Fetch all active scorecards with owner, team, role, and metric count
+    const { data: allScorecards, error: scorecardsError } = await supabase
+      .from('scorecards')
+      .select(`
+        *,
+        owner:profiles!scorecards_owner_user_id_fkey(*),
+        team:teams(*),
+        role:roles(*)
+      `)
+      .eq('is_active', true)
+      .order('created_at', { ascending: false })
+
+    if (scorecardsError) {
+      console.error('Error fetching scorecards:', scorecardsError)
+      return { yourScorecards: [], companyScorecards: [], error: scorecardsError.message }
+    }
+
+    // Get metric counts for all scorecards
+    const { data: metricCounts, error: metricsError } = await supabase
+      .from('metrics')
+      .select('scorecard_id')
+      .eq('is_active', true)
+
+    if (metricsError) {
+      console.error('Error fetching metric counts:', metricsError)
+    }
+
+    // Create a map of scorecard_id -> metric_count
+    const metricCountMap = new Map<string, number>()
+    metricCounts?.forEach((metric) => {
+      const count = metricCountMap.get(metric.scorecard_id) || 0
+      metricCountMap.set(metric.scorecard_id, count + 1)
+    })
+
+    // Separate and enhance scorecards
+    const yourScorecards: ScorecardWithDetails[] = []
+    const companyScorecards: ScorecardWithDetails[] = []
+
+    allScorecards?.forEach((scorecard: any) => {
+      const enhancedScorecard: ScorecardWithDetails = {
+        ...scorecard,
+        owner: scorecard.owner || null,
+        team: scorecard.team || null,
+        role: scorecard.role || null,
+        metric_count: metricCountMap.get(scorecard.id) || 0,
+      }
+
+      if (yourScorecardIds.has(scorecard.id)) {
+        yourScorecards.push(enhancedScorecard)
+      } else {
+        companyScorecards.push(enhancedScorecard)
+      }
+    })
+
+    return { yourScorecards, companyScorecards, error: null }
+  } catch (error) {
+    console.error('Unexpected error in getOrganizedScorecards:', error)
+    return { yourScorecards: [], companyScorecards: [], error: 'An unexpected error occurred' }
+  }
+}
+
+/**
+ * Get all scorecards where the user is either the owner or a member
+ */
+export async function getUserScorecards(): Promise<{
+  data: Scorecard[] | null
+  error: string | null
+}> {
+  try {
+    const supabase = await createClient()
+
+    // Get current user
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
+
+    if (!user) {
+      return { data: null, error: 'Not authenticated' }
+    }
+
+    // Fetch scorecards where user is owner
+    const { data: ownedScorecards, error: ownedError } = await supabase
+      .from('scorecards')
+      .select('*')
+      .eq('is_active', true)
+      .eq('owner_user_id', user.id)
+
+    if (ownedError) {
+      console.error('Error fetching owned scorecards:', ownedError)
+      return { data: null, error: ownedError.message }
+    }
+
+    // Get scorecards where user is a member (via scorecard_members)
+    const { data: memberScorecards, error: memberError } = await supabase
+      .from('scorecard_members')
+      .select('scorecards(*)')
+      .eq('user_id', user.id)
+
+    if (memberError) {
+      console.error('Error fetching member scorecards:', memberError)
+      return { data: null, error: memberError.message }
+    }
+
+    // Combine and deduplicate scorecards
+    const allScorecards = new Map<string, Scorecard>()
+
+    // Add owned scorecards
+    ownedScorecards?.forEach((scorecard) => {
+      allScorecards.set(scorecard.id, scorecard)
+    })
+
+    // Add member scorecards (filter for active ones)
+    memberScorecards?.forEach((member) => {
+      if (member.scorecards && member.scorecards.is_active) {
+        allScorecards.set(member.scorecards.id, member.scorecards as Scorecard)
+      }
+    })
+
+    // Convert to array and sort by creation date
+    const uniqueScorecards = Array.from(allScorecards.values()).sort(
+      (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+    )
+
+    return { data: uniqueScorecards, error: null }
+  } catch (error) {
+    console.error('Unexpected error in getUserScorecards:', error)
+    return { data: null, error: 'An unexpected error occurred' }
+  }
+}
+
+/**
+ * Create a new scorecard (Admin only)
+ * Scorecards can be either team-based or role-based
+ */
+export async function createScorecard(formData: FormData): Promise<{
+  success: boolean
+  error?: string
+  scorecardId?: string
+}> {
+  try {
+    const supabase = await createClient()
+
+    // Get current user
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
+
+    if (!user) {
+      return { success: false, error: 'Not authenticated' }
+    }
+
+    // Check if user is system admin
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('is_system_admin')
+      .eq('id', user.id)
+      .single()
+
+    if (!profile?.is_system_admin) {
+      return {
+        success: false,
+        error: 'Only system administrators can create scorecards',
+      }
+    }
+
+    // Validate input
+    const type = formData.get('type') as 'team' | 'role'
+    const teamId = formData.get('team_id') as string | null
+    const roleId = formData.get('role_id') as string | null
+    const ownerUserId = formData.get('owner_user_id') as string
+
+    if (!type || !['team', 'role'].includes(type)) {
+      return { success: false, error: 'Scorecard type must be either "team" or "role"' }
+    }
+
+    if (!ownerUserId) {
+      return { success: false, error: 'Owner user ID is required' }
+    }
+
+    // Validate team scorecard
+    if (type === 'team') {
+      if (!teamId) {
+        return { success: false, error: 'Team ID is required for team scorecards' }
+      }
+
+      // Check if team already has a scorecard
+      const { data: existingScorecard } = await supabase
+        .from('scorecards')
+        .select('id')
+        .eq('type', 'team')
+        .eq('team_id', teamId)
+        .eq('is_active', true)
+        .single()
+
+      if (existingScorecard) {
+        return { success: false, error: 'This team already has a scorecard' }
+      }
+    }
+
+    // Validate role scorecard
+    if (type === 'role') {
+      if (!roleId) {
+        return { success: false, error: 'Role ID is required for role scorecards' }
+      }
+
+      // Check if this employee already has a scorecard for this role
+      const { data: existingScorecard } = await supabase
+        .from('scorecards')
+        .select('id')
+        .eq('type', 'role')
+        .eq('role_id', roleId)
+        .eq('owner_user_id', ownerUserId)
+        .eq('is_active', true)
+        .single()
+
+      if (existingScorecard) {
+        return { success: false, error: 'This employee already has a scorecard for this role' }
+      }
+
+      // Verify employee is assigned to this role
+      const { data: employeeRole } = await supabase
+        .from('employee_roles')
+        .select('id')
+        .eq('profile_id', ownerUserId)
+        .eq('role_id', roleId)
+        .single()
+
+      if (!employeeRole) {
+        return {
+          success: false,
+          error: 'Employee must be assigned to the role before creating a role scorecard',
+        }
+      }
+    }
+
+    // Insert scorecard (name will be auto-generated by trigger)
+    const { data: scorecard, error: scorecardError } = await supabase
+      .from('scorecards')
+      .insert({
+        type,
+        owner_user_id: ownerUserId,
+        created_by: user.id,
+        team_id: type === 'team' ? teamId : null,
+        role_id: type === 'role' ? roleId : null,
+      })
+      .select()
+      .single()
+
+    if (scorecardError || !scorecard) {
+      console.error('Error creating scorecard:', scorecardError)
+      return { success: false, error: scorecardError?.message || 'Failed to create scorecard' }
+    }
+
+    // Insert scorecard member (owner)
+    const { error: memberError } = await supabase.from('scorecard_members').insert({
+      scorecard_id: scorecard.id,
+      user_id: ownerUserId,
+      role: 'owner',
+    })
+
+    if (memberError) {
+      console.error('Error adding scorecard member:', memberError)
+      // Note: Scorecard was created but member wasn't added
+      // In production, you might want to delete the scorecard or handle this differently
+    }
+
+    // Revalidate the scorecards page
+    revalidatePath('/scorecards')
+
+    return { success: true, scorecardId: scorecard.id }
+  } catch (error) {
+    console.error('Unexpected error in createScorecard:', error)
+    return { success: false, error: 'An unexpected error occurred' }
+  }
+}
+
+/**
+ * Update scorecard active status (Admin only)
+ * Note: Names and types are auto-generated and cannot be manually updated
+ */
+export async function updateScorecard(
+  scorecardId: string,
+  isActive: boolean
+): Promise<{
+  success: boolean
+  error?: string
+}> {
+  try {
+    const supabase = await createClient()
+
+    // Get current user
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
+
+    if (!user) {
+      return { success: false, error: 'Not authenticated' }
+    }
+
+    // Check if user is system admin
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('is_system_admin')
+      .eq('id', user.id)
+      .single()
+
+    if (!profile?.is_system_admin) {
+      return {
+        success: false,
+        error: 'Only system administrators can update scorecards',
+      }
+    }
+
+    // Verify scorecard exists
+    const { data: scorecard } = await supabase
+      .from('scorecards')
+      .select('id')
+      .eq('id', scorecardId)
+      .single()
+
+    if (!scorecard) {
+      return { success: false, error: 'Scorecard not found' }
+    }
+
+    // Update scorecard active status
+    const { error: updateError } = await supabase
+      .from('scorecards')
+      .update({ is_active: isActive })
+      .eq('id', scorecardId)
+
+    if (updateError) {
+      console.error('Error updating scorecard:', updateError)
+      return { success: false, error: 'Failed to update scorecard' }
+    }
+
+    // Revalidate the scorecard pages
+    revalidatePath('/scorecards')
+    revalidatePath(`/scorecards/${scorecardId}`)
+
+    return { success: true }
+  } catch (error) {
+    console.error('Unexpected error in updateScorecard:', error)
+    return { success: false, error: 'An unexpected error occurred' }
+  }
+}
