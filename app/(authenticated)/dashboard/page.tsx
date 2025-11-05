@@ -1,17 +1,7 @@
-import { createClient } from "@/lib/supabase/server"
-import { redirect } from "next/navigation"
+import { requireUser } from "@/lib/auth/session"
 
 export default async function DashboardPage() {
-  const supabase = await createClient()
-
-  // Get the current user
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-
-  if (!user) {
-    redirect("/login")
-  }
+  const { supabase, user } = await requireUser({ redirectTo: "/login" })
 
   // Fetch user profile
   const { data: profile } = await supabase

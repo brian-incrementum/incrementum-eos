@@ -1,21 +1,11 @@
-import { redirect } from "next/navigation"
-import { createClient } from "@/lib/supabase/server"
+import { requireUser } from "@/lib/auth/session"
 import { getUserTeams } from "@/lib/actions/teams"
 import { TeamCard } from "./team-card"
 import { CreateTeamButton } from "./create-team-button"
 import { Users } from "lucide-react"
 
 export default async function TeamsPage() {
-  const supabase = await createClient()
-
-  // Check if user is authenticated
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-
-  if (!user) {
-    redirect("/login")
-  }
+  await requireUser({ redirectTo: "/login" })
 
   // Fetch user's teams
   const { data: teams, error } = await getUserTeams()

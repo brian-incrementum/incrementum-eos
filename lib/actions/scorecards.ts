@@ -1,21 +1,12 @@
 'use server'
 
-import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
-import { redirect } from 'next/navigation'
-import type { Tables } from '@/lib/types/database.types'
 
-type Scorecard = Tables<'scorecards'>
-type Profile = Tables<'profiles'>
-type Team = Tables<'teams'>
-type Role = Tables<'roles'>
+import { AuthError, requireUser } from '@/lib/auth/session'
+import { loadScorecardListings } from '@/lib/loaders/scorecard-listings'
+import type { ScorecardTable, ScorecardWithDetails } from '@/lib/types/scorecards'
 
-export interface ScorecardWithDetails extends Scorecard {
-  owner: Profile | null
-  team: Team | null
-  role: Role | null
-  metric_count: number
-}
+type Scorecard = ScorecardTable
 
 /**
  * Get organized scorecards with enhanced details
@@ -27,100 +18,14 @@ export async function getOrganizedScorecards(): Promise<{
   error: string | null
 }> {
   try {
-    const supabase = await createClient()
+    const { supabase, user } = await requireUser()
 
-    // Get current user
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
-
-    if (!user) {
+    return await loadScorecardListings({ supabase, userId: user.id })
+  } catch (error) {
+    if (error instanceof AuthError) {
       return { yourScorecards: [], companyScorecards: [], error: 'Not authenticated' }
     }
 
-    // Fetch all scorecard IDs where user is involved
-    // 1. Scorecards user owns
-    const { data: ownedScorecardIds } = await supabase
-      .from('scorecards')
-      .select('id')
-      .eq('is_active', true)
-      .eq('owner_user_id', user.id)
-
-    // 2. Scorecards where user is a member
-    const { data: memberScorecardIds } = await supabase
-      .from('scorecard_members')
-      .select('scorecard_id')
-      .eq('user_id', user.id)
-
-    // 3. Scorecards where user owns metrics
-    const { data: metricOwnerScorecardIds } = await supabase
-      .from('metrics')
-      .select('scorecard_id')
-      .eq('owner_user_id', user.id)
-      .eq('is_active', true)
-
-    // Combine all "your scorecard" IDs
-    const yourScorecardIds = new Set<string>()
-    ownedScorecardIds?.forEach((s) => yourScorecardIds.add(s.id))
-    memberScorecardIds?.forEach((m) => yourScorecardIds.add(m.scorecard_id))
-    metricOwnerScorecardIds?.forEach((m) => yourScorecardIds.add(m.scorecard_id))
-
-    // Fetch all active scorecards with owner, team, role, and metric count
-    const { data: allScorecards, error: scorecardsError } = await supabase
-      .from('scorecards')
-      .select(`
-        *,
-        owner:profiles!scorecards_owner_user_id_fkey(*),
-        team:teams(*),
-        role:roles(*)
-      `)
-      .eq('is_active', true)
-      .order('created_at', { ascending: false })
-
-    if (scorecardsError) {
-      console.error('Error fetching scorecards:', scorecardsError)
-      return { yourScorecards: [], companyScorecards: [], error: scorecardsError.message }
-    }
-
-    // Get metric counts for all scorecards
-    const { data: metricCounts, error: metricsError } = await supabase
-      .from('metrics')
-      .select('scorecard_id')
-      .eq('is_active', true)
-
-    if (metricsError) {
-      console.error('Error fetching metric counts:', metricsError)
-    }
-
-    // Create a map of scorecard_id -> metric_count
-    const metricCountMap = new Map<string, number>()
-    metricCounts?.forEach((metric) => {
-      const count = metricCountMap.get(metric.scorecard_id) || 0
-      metricCountMap.set(metric.scorecard_id, count + 1)
-    })
-
-    // Separate and enhance scorecards
-    const yourScorecards: ScorecardWithDetails[] = []
-    const companyScorecards: ScorecardWithDetails[] = []
-
-    allScorecards?.forEach((scorecard: any) => {
-      const enhancedScorecard: ScorecardWithDetails = {
-        ...scorecard,
-        owner: scorecard.owner || null,
-        team: scorecard.team || null,
-        role: scorecard.role || null,
-        metric_count: metricCountMap.get(scorecard.id) || 0,
-      }
-
-      if (yourScorecardIds.has(scorecard.id)) {
-        yourScorecards.push(enhancedScorecard)
-      } else {
-        companyScorecards.push(enhancedScorecard)
-      }
-    })
-
-    return { yourScorecards, companyScorecards, error: null }
-  } catch (error) {
     console.error('Unexpected error in getOrganizedScorecards:', error)
     return { yourScorecards: [], companyScorecards: [], error: 'An unexpected error occurred' }
   }
@@ -134,16 +39,7 @@ export async function getUserScorecards(): Promise<{
   error: string | null
 }> {
   try {
-    const supabase = await createClient()
-
-    // Get current user
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
-
-    if (!user) {
-      return { data: null, error: 'Not authenticated' }
-    }
+    const { supabase, user } = await requireUser()
 
     // Fetch scorecards where user is owner
     const { data: ownedScorecards, error: ownedError } = await supabase
@@ -190,6 +86,10 @@ export async function getUserScorecards(): Promise<{
 
     return { data: uniqueScorecards, error: null }
   } catch (error) {
+    if (error instanceof AuthError) {
+      return { data: null, error: 'Not authenticated' }
+    }
+
     console.error('Unexpected error in getUserScorecards:', error)
     return { data: null, error: 'An unexpected error occurred' }
   }
@@ -205,16 +105,7 @@ export async function createScorecard(formData: FormData): Promise<{
   scorecardId?: string
 }> {
   try {
-    const supabase = await createClient()
-
-    // Get current user
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
-
-    if (!user) {
-      return { success: false, error: 'Not authenticated' }
-    }
+    const { supabase, user } = await requireUser()
 
     // Check if user is system admin
     const { data: profile } = await supabase
@@ -336,6 +227,10 @@ export async function createScorecard(formData: FormData): Promise<{
 
     return { success: true, scorecardId: scorecard.id }
   } catch (error) {
+    if (error instanceof AuthError) {
+      return { success: false, error: 'Not authenticated' }
+    }
+
     console.error('Unexpected error in createScorecard:', error)
     return { success: false, error: 'An unexpected error occurred' }
   }
@@ -353,16 +248,7 @@ export async function updateScorecard(
   error?: string
 }> {
   try {
-    const supabase = await createClient()
-
-    // Get current user
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
-
-    if (!user) {
-      return { success: false, error: 'Not authenticated' }
-    }
+    const { supabase, user } = await requireUser()
 
     // Check if user is system admin
     const { data: profile } = await supabase
@@ -406,6 +292,10 @@ export async function updateScorecard(
 
     return { success: true }
   } catch (error) {
+    if (error instanceof AuthError) {
+      return { success: false, error: 'Not authenticated' }
+    }
+
     console.error('Unexpected error in updateScorecard:', error)
     return { success: false, error: 'An unexpected error occurred' }
   }

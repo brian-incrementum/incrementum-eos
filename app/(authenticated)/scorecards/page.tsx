@@ -1,32 +1,19 @@
-import { redirect } from 'next/navigation'
-import { createClient } from '@/lib/supabase/server'
-import { getOrganizedScorecards } from '@/lib/actions/scorecards'
+import { requireUser } from '@/lib/auth/session'
+import { loadScorecardListings } from '@/lib/loaders/scorecard-listings'
+import { isSystemAdmin } from '@/lib/auth/permissions'
 import { ScorecardsTable } from './scorecards-table'
 import { ScorecardsHeader } from './scorecards-header'
 
 export default async function ScorecardsPage() {
-  const supabase = await createClient()
+  const { supabase, user } = await requireUser({ redirectTo: '/login' })
 
-  // Check if user is authenticated
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-
-  if (!user) {
-    redirect('/login')
-  }
-
-  // Check if user is system admin
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('is_system_admin')
-    .eq('id', user.id)
-    .single()
-
-  const isAdmin = profile?.is_system_admin || false
+  const isAdmin = await isSystemAdmin(user.id, supabase)
 
   // Fetch organized scorecards
-  const { yourScorecards, companyScorecards, error} = await getOrganizedScorecards()
+  const { yourScorecards, companyScorecards, error } = await loadScorecardListings({
+    supabase,
+    userId: user.id,
+  })
 
   if (error) {
     return (

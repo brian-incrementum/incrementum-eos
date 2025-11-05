@@ -1,7 +1,8 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
-import { createClient } from '@/lib/supabase/server'
+
+import { AuthError, requireUser } from '@/lib/auth/session'
 import { getCurrentPeriodStart, toISODate } from '@/lib/utils/date-helpers'
 
 /**
@@ -13,16 +14,7 @@ export async function upsertMetricEntry(
   formData: FormData
 ): Promise<{ success: boolean; error?: string }> {
   try {
-    const supabase = await createClient()
-
-    // Check auth
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
-
-    if (!user) {
-      return { success: false, error: 'Not authenticated' }
-    }
+    const { supabase, user } = await requireUser()
 
     // Get metric to determine cadence and scoring mode
     const { data: metric, error: metricError } = await supabase
@@ -88,6 +80,10 @@ export async function upsertMetricEntry(
 
     return { success: true }
   } catch (error) {
+    if (error instanceof AuthError) {
+      return { success: false, error: 'Not authenticated' }
+    }
+
     console.error('Error in upsertMetricEntry:', error)
     return { success: false, error: 'An unexpected error occurred' }
   }
@@ -103,16 +99,7 @@ export async function updateEntryNote(
   note: string
 ): Promise<{ success: boolean; error?: string }> {
   try {
-    const supabase = await createClient()
-
-    // Check auth
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
-
-    if (!user) {
-      return { success: false, error: 'Not authenticated' }
-    }
+    const { supabase } = await requireUser()
 
     // Update the note for the specific entry
     const { error: updateError } = await supabase
@@ -131,6 +118,10 @@ export async function updateEntryNote(
 
     return { success: true }
   } catch (error) {
+    if (error instanceof AuthError) {
+      return { success: false, error: 'Not authenticated' }
+    }
+
     console.error('Error in updateEntryNote:', error)
     return { success: false, error: 'An unexpected error occurred' }
   }

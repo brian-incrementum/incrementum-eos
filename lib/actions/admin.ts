@@ -1,7 +1,9 @@
 'use server'
 
-import { createClient, createAdminClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
+
+import { AuthContext, requireUser } from '@/lib/auth/session'
+import { createAdminClient } from '@/lib/supabase/server'
 import type { Tables } from '@/lib/types/database.types'
 import { isSystemAdmin } from '@/lib/auth/permissions'
 
@@ -30,22 +32,16 @@ export interface SystemStats {
  * Check if the current user is a system admin
  * This is used for authorization checks in admin routes
  */
-export async function requireSystemAdmin(): Promise<void> {
-  const supabase = await createClient()
+export async function requireSystemAdmin(): Promise<AuthContext> {
+  const authContext = await requireUser()
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-
-  if (!user) {
-    throw new Error('Not authenticated')
-  }
-
-  const isAdmin = await isSystemAdmin(user.id)
+  const isAdmin = await isSystemAdmin(authContext.user.id)
 
   if (!isAdmin) {
     throw new Error('Unauthorized: System admin access required')
   }
+
+  return authContext
 }
 
 /**
@@ -57,9 +53,7 @@ export async function getAllUsers(): Promise<{
   error: string | null
 }> {
   try {
-    await requireSystemAdmin()
-
-    const supabase = await createClient()
+    const { supabase } = await requireSystemAdmin()
     const adminClient = createAdminClient()
 
     // Get all auth users using admin client
@@ -175,9 +169,7 @@ export async function getSystemStats(): Promise<{
   error: string | null
 }> {
   try {
-    await requireSystemAdmin()
-
-    const supabase = await createClient()
+    const { supabase } = await requireSystemAdmin()
 
     // Get total users
     const { count: totalUsers, error: usersError } = await supabase
@@ -254,16 +246,9 @@ export async function updateUserAdminStatus(
   error?: string
 }> {
   try {
-    await requireSystemAdmin()
+    const { supabase, user: currentUser } = await requireSystemAdmin()
 
-    const supabase = await createClient()
-
-    // Get current user to prevent them from removing their own admin access
-    const {
-      data: { user: currentUser },
-    } = await supabase.auth.getUser()
-
-    if (currentUser?.id === userId && !isAdmin) {
+    if (currentUser.id === userId && !isAdmin) {
       return {
         success: false,
         error: 'You cannot remove your own system admin access',
@@ -305,9 +290,7 @@ export async function getUserDetails(userId: string): Promise<{
   error: string | null
 }> {
   try {
-    await requireSystemAdmin()
-
-    const supabase = await createClient()
+    const { supabase } = await requireSystemAdmin()
     const adminClient = createAdminClient()
 
     // Get user from auth using admin client

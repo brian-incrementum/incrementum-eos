@@ -1,13 +1,14 @@
 'use server'
 
-import { createClient } from '@/lib/supabase/server'
+import { AuthError, requireUser } from '@/lib/auth/session'
 import type { Tables } from '@/lib/types/database.types'
-import { syncEmployeeProfiles } from './sync-employee-profiles'
 
 type Employee = Tables<'employees'>
+type Profile = Tables<'profiles'>
 
 export interface EmployeeWithProfile extends Employee {
   profile_id: string
+  profile: Pick<Profile, 'id' | 'email' | 'full_name' | 'avatar_url'>
 }
 
 /**
@@ -18,16 +19,7 @@ export async function getActiveEmployees(): Promise<{
   error: string | null
 }> {
   try {
-    const supabase = await createClient()
-
-    // Check auth
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
-
-    if (!user) {
-      return { employees: null, error: 'Not authenticated' }
-    }
+    const { supabase } = await requireUser()
 
     // Fetch all employees (table only contains active team members)
     const { data: employees, error: employeesError } = await supabase
@@ -40,44 +32,61 @@ export async function getActiveEmployees(): Promise<{
       return { employees: [], error: null }
     }
 
-    // Fetch all profiles to match with employees
+    const emails = Array.from(
+      new Set(
+        (employees ?? [])
+          .map((employee) => employee.company_email?.toLowerCase())
+          .filter((email): email is string => Boolean(email))
+      )
+    )
+
+    if (emails.length === 0) {
+      return { employees: [], error: null }
+    }
+
     const { data: profiles, error: profilesError } = await supabase
       .from('profiles')
-      .select('id, email')
+      .select('id, email, full_name, avatar_url')
+      .in('email', emails)
 
     if (profilesError) {
       console.error('Error fetching profiles:', profilesError)
       return { employees: [], error: null }
     }
 
-    // Create a map of email -> profile_id for quick lookup
-    const profileMap = new Map<string, string>()
+    const profileMap = new Map<string, Pick<Profile, 'id' | 'email' | 'full_name' | 'avatar_url'>>()
     profiles?.forEach((profile) => {
       if (profile.email) {
-        profileMap.set(profile.email.toLowerCase(), profile.id)
+        profileMap.set(profile.email.toLowerCase(), profile)
       }
     })
 
-    // Map employees to include profile_id (only include employees with profiles)
-    const employeesWithProfiles: EmployeeWithProfile[] = (employees || [])
+    const employeesWithProfiles: EmployeeWithProfile[] = (employees ?? [])
       .map((employee) => {
-        const profile_id = employee.company_email
-          ? profileMap.get(employee.company_email.toLowerCase())
-          : undefined
+        if (!employee.company_email) {
+          return null
+        }
 
-        if (!profile_id) {
+        const profile = profileMap.get(employee.company_email.toLowerCase())
+
+        if (!profile) {
           return null
         }
 
         return {
           ...employee,
-          profile_id,
+          profile_id: profile.id,
+          profile,
         }
       })
-      .filter((e): e is EmployeeWithProfile => e !== null)
+      .filter((e): e is EmployeeWithProfile => Boolean(e))
 
     return { employees: employeesWithProfiles, error: null }
   } catch (error) {
+    if (error instanceof AuthError) {
+      return { employees: null, error: 'Not authenticated' }
+    }
+
     console.error('Unexpected error in getActiveEmployees:', error)
     return { employees: null, error: 'An unexpected error occurred' }
   }

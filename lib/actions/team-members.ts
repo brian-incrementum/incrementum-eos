@@ -5,8 +5,9 @@
  * Member management operations with permission checks
  */
 
-import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
+
+import { AuthError, requireUser } from '@/lib/auth/session'
 import type { Tables } from '@/lib/types/database.types'
 import { canManageTeamMembers } from '@/lib/auth/permissions'
 import { TEAM_ROLES, type TeamRole } from '@/lib/auth/constants'
@@ -26,15 +27,7 @@ export async function getTeamMembers(teamId: string): Promise<{
   error: string | null
 }> {
   try {
-    const supabase = await createClient()
-
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
-
-    if (!user) {
-      return { data: null, error: 'Not authenticated' }
-    }
+    const { supabase } = await requireUser()
 
     // Fetch team members with profiles
     const { data, error } = await supabase
@@ -52,6 +45,10 @@ export async function getTeamMembers(teamId: string): Promise<{
 
     return { data: data as TeamMemberWithProfile[], error: null }
   } catch (error) {
+    if (error instanceof AuthError) {
+      return { data: null, error: 'Not authenticated' }
+    }
+
     return { data: null, error: (error as Error).message }
   }
 }
@@ -69,18 +66,10 @@ export async function addTeamMember(
   error: string | null
 }> {
   try {
-    const supabase = await createClient()
-
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
-
-    if (!user) {
-      return { data: null, error: 'Not authenticated' }
-    }
+    const { supabase, user } = await requireUser()
 
     // Check if current user can manage members
-    const canManage = await canManageTeamMembers(teamId, user.id)
+    const canManage = await canManageTeamMembers(teamId, user.id, supabase)
 
     if (!canManage) {
       return {
@@ -134,6 +123,10 @@ export async function addTeamMember(
     revalidatePath(`/teams/${teamId}`)
     return { data, error: null }
   } catch (error) {
+    if (error instanceof AuthError) {
+      return { data: null, error: 'Not authenticated' }
+    }
+
     return { data: null, error: (error as Error).message }
   }
 }
@@ -152,18 +145,10 @@ export async function updateTeamMemberRole(
   error: string | null
 }> {
   try {
-    const supabase = await createClient()
-
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
-
-    if (!user) {
-      return { data: null, error: 'Not authenticated' }
-    }
+    const { supabase, user } = await requireUser()
 
     // Check if current user can manage members
-    const canManage = await canManageTeamMembers(teamId, user.id)
+    const canManage = await canManageTeamMembers(teamId, user.id, supabase)
 
     if (!canManage) {
       return {
@@ -224,6 +209,10 @@ export async function updateTeamMemberRole(
     revalidatePath(`/teams/${teamId}`)
     return { data, error: null }
   } catch (error) {
+    if (error instanceof AuthError) {
+      return { data: null, error: 'Not authenticated' }
+    }
+
     return { data: null, error: (error as Error).message }
   }
 }
@@ -241,18 +230,10 @@ export async function removeTeamMember(
   error: string | null
 }> {
   try {
-    const supabase = await createClient()
-
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
-
-    if (!user) {
-      return { success: false, error: 'Not authenticated' }
-    }
+    const { supabase, user } = await requireUser()
 
     // Check if current user can manage members
-    const canManage = await canManageTeamMembers(teamId, user.id)
+    const canManage = await canManageTeamMembers(teamId, user.id, supabase)
 
     if (!canManage) {
       return {
@@ -295,6 +276,10 @@ export async function removeTeamMember(
     revalidatePath(`/teams/${teamId}`)
     return { success: true, error: null }
   } catch (error) {
+    if (error instanceof AuthError) {
+      return { success: false, error: 'Not authenticated' }
+    }
+
     return { success: false, error: (error as Error).message }
   }
 }
@@ -312,15 +297,7 @@ export async function transferTeamOwnership(
   error: string | null
 }> {
   try {
-    const supabase = await createClient()
-
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
-
-    if (!user) {
-      return { success: false, error: 'Not authenticated' }
-    }
+    const { supabase, user } = await requireUser()
 
     // Verify current user is the owner
     const { data: currentMember } = await supabase
@@ -385,6 +362,10 @@ export async function transferTeamOwnership(
     revalidatePath(`/teams/${teamId}`)
     return { success: true, error: null }
   } catch (error) {
+    if (error instanceof AuthError) {
+      return { success: false, error: 'Not authenticated' }
+    }
+
     return { success: false, error: (error as Error).message }
   }
 }
@@ -399,15 +380,7 @@ export async function leaveTeam(teamId: string): Promise<{
   error: string | null
 }> {
   try {
-    const supabase = await createClient()
-
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
-
-    if (!user) {
-      return { success: false, error: 'Not authenticated' }
-    }
+    const { supabase, user } = await requireUser()
 
     // Get member's role
     const { data: member } = await supabase
@@ -444,6 +417,10 @@ export async function leaveTeam(teamId: string): Promise<{
     revalidatePath(`/teams/${teamId}`)
     return { success: true, error: null }
   } catch (error) {
+    if (error instanceof AuthError) {
+      return { success: false, error: 'Not authenticated' }
+    }
+
     return { success: false, error: (error as Error).message }
   }
 }

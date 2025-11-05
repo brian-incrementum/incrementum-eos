@@ -1,11 +1,15 @@
 'use client'
 
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Plus, Pencil } from 'lucide-react'
 import type { Tables } from '@/lib/types/database.types'
 import type { EmployeeWithProfile } from '@/lib/actions/employees'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { getCurrentPeriodStart, formatPeriodDate, toISODate } from '@/lib/utils/date-helpers'
+import {
+  getCurrentPeriodStart,
+  formatPeriodDate,
+  toISODate,
+} from '@/lib/utils/date-helpers'
 import { TableView } from './table-view'
 import { DetailModal } from './detail-modal'
 import { NoteModal } from './note-modal'
@@ -39,47 +43,66 @@ export function ScorecardView({ scorecard, metrics, employees, currentUserId }: 
   const [showAddMetricModal, setShowAddMetricModal] = useState(false)
   const [showEditSheet, setShowEditSheet] = useState(false)
 
-  // Filter metrics by cadence
-  const weeklyMetrics = metrics.filter((m) => m.cadence === 'weekly')
-  const monthlyMetrics = metrics.filter((m) => m.cadence === 'monthly')
-  const quarterlyMetrics = metrics.filter((m) => m.cadence === 'quarterly')
+  const cadenceConfigs = useMemo(
+    () => (
+      [
+        {
+          id: 'weekly' as const,
+          label: 'Weekly',
+        },
+        {
+          id: 'monthly' as const,
+          label: 'Monthly',
+        },
+        {
+          id: 'quarterly' as const,
+          label: 'Quarterly',
+        },
+      ] satisfies Array<{
+        id: 'weekly' | 'monthly' | 'quarterly'
+        label: string
+      }>
+    ),
+    []
+  )
 
-  // Get current period start for each cadence
-  const currentWeekStart = toISODate(getCurrentPeriodStart('weekly'))
-  const currentMonthStart = toISODate(getCurrentPeriodStart('monthly'))
-  const currentQuarterStart = toISODate(getCurrentPeriodStart('quarterly'))
+  const metricsByCadence = useMemo(() => {
+    const mapped = new Map<'weekly' | 'monthly' | 'quarterly', MetricWithEntries[]>()
 
-  // Get current period based on active tab
-  const getCurrentPeriod = () => {
-    switch (activeTab) {
-      case 'weekly':
-        return currentWeekStart
-      case 'monthly':
-        return currentMonthStart
-      case 'quarterly':
-        return currentQuarterStart
-    }
-  }
+    cadenceConfigs.forEach(({ id }) => {
+      mapped.set(id, [])
+    })
 
-  // Get display label for current period
-  const getCurrentPeriodLabel = () => {
+    metrics.forEach((metric) => {
+      const list = mapped.get(metric.cadence as 'weekly' | 'monthly' | 'quarterly')
+      if (list) {
+        list.push(metric)
+      }
+    })
+
+    return mapped
+  }, [cadenceConfigs, metrics])
+
+  const periodStarts = useMemo(() => {
+    const currentStart = (cadence: 'weekly' | 'monthly' | 'quarterly') =>
+      toISODate(getCurrentPeriodStart(cadence))
+
+    return new Map<
+      'weekly' | 'monthly' | 'quarterly',
+      ReturnType<typeof currentStart>
+    >([
+      ['weekly', currentStart('weekly')],
+      ['monthly', currentStart('monthly')],
+      ['quarterly', currentStart('quarterly')],
+    ])
+  }, [])
+
+  const getCurrentPeriod = () => periodStarts.get(activeTab)
+
+  const currentPeriodLabel = useMemo(() => {
     const periodStart = getCurrentPeriodStart(activeTab)
     return formatPeriodDate(periodStart, activeTab)
-  }
-
-  // Get metrics for active tab
-  const getActiveMetrics = () => {
-    switch (activeTab) {
-      case 'weekly':
-        return weeklyMetrics
-      case 'monthly':
-        return monthlyMetrics
-      case 'quarterly':
-        return quarterlyMetrics
-    }
-  }
-
-  const activeMetrics = getActiveMetrics()
+  }, [activeTab])
 
   const handleMetricClick = (metric: MetricWithEntries) => {
     setSelectedMetric(metric)
@@ -95,7 +118,7 @@ export function ScorecardView({ scorecard, metrics, employees, currentUserId }: 
         <div className="flex items-center gap-3">
           <div>
             <h1 className="text-3xl font-bold text-gray-900 mb-2">{scorecard.name}</h1>
-            <p className="text-gray-600">{getCurrentPeriodLabel()}</p>
+            <p className="text-gray-600">{currentPeriodLabel}</p>
           </div>
           <button
             onClick={() => setShowEditSheet(true)}
@@ -113,43 +136,25 @@ export function ScorecardView({ scorecard, metrics, employees, currentUserId }: 
         className="w-full"
       >
         <TabsList className="grid w-full max-w-md grid-cols-3">
-          <TabsTrigger value="weekly">Weekly</TabsTrigger>
-          <TabsTrigger value="monthly">Monthly</TabsTrigger>
-          <TabsTrigger value="quarterly">Quarterly</TabsTrigger>
+          {cadenceConfigs.map(({ id, label }) => (
+            <TabsTrigger key={id} value={id}>
+              {label}
+            </TabsTrigger>
+          ))}
         </TabsList>
 
-        <TabsContent value="weekly" className="mt-6">
-          <TableView
-            metrics={activeMetrics}
-            onMetricClick={handleMetricClick}
-            onNoteClick={handleNoteClick}
-            scorecardId={scorecard.id}
-            employees={employees}
-            currentUserId={currentUserId}
-          />
-        </TabsContent>
-
-        <TabsContent value="monthly" className="mt-6">
-          <TableView
-            metrics={activeMetrics}
-            onMetricClick={handleMetricClick}
-            onNoteClick={handleNoteClick}
-            scorecardId={scorecard.id}
-            employees={employees}
-            currentUserId={currentUserId}
-          />
-        </TabsContent>
-
-        <TabsContent value="quarterly" className="mt-6">
-          <TableView
-            metrics={activeMetrics}
-            onMetricClick={handleMetricClick}
-            onNoteClick={handleNoteClick}
-            scorecardId={scorecard.id}
-            employees={employees}
-            currentUserId={currentUserId}
-          />
-        </TabsContent>
+        {cadenceConfigs.map(({ id }) => (
+          <TabsContent key={id} value={id} className="mt-6">
+            <TableView
+              metrics={metricsByCadence.get(id) ?? []}
+              onMetricClick={handleMetricClick}
+              onNoteClick={handleNoteClick}
+              scorecardId={scorecard.id}
+              employees={employees}
+              currentUserId={currentUserId}
+            />
+          </TabsContent>
+        ))}
       </Tabs>
 
       <div className="mt-8">

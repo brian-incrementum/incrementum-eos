@@ -19,8 +19,6 @@ import {
 } from '@dnd-kit/sortable'
 import { type RoleWithDetails, reorderRoles } from '@/lib/actions/roles'
 import { SortableRoleRow } from './sortable-role-row'
-import { EditRoleDialog } from './edit-role-dialog'
-import { DeleteRoleDialog } from './delete-role-dialog'
 import { ViewRoleMembersDialog } from './view-role-members-dialog'
 
 interface RolesTableProps {
@@ -86,7 +84,60 @@ export function RolesTable({ initialRoles, isAdmin }: RolesTableProps) {
     }
   }
 
-  return (
+  const adminRows = (
+    <SortableContext
+      items={roles.map((role) => role.id)}
+      strategy={verticalListSortingStrategy}
+    >
+      {roles.map((role) => (
+        <SortableRoleRow
+          key={role.id}
+          role={role}
+          roles={roles}
+          isAdmin={isAdmin}
+        />
+      ))}
+    </SortableContext>
+  )
+
+  const viewerRows = roles.map((role) => (
+    <tr
+      key={role.id}
+      className="border-b last:border-b-0 hover:bg-muted/20 transition-colors"
+    >
+      <td className="p-4">
+        <p className="font-medium">{role.name}</p>
+      </td>
+      <td className="p-4">
+        {role.description ? (
+          <p className="text-sm text-muted-foreground line-clamp-2">
+            {role.description}
+          </p>
+        ) : (
+          <span className="text-sm text-muted-foreground italic">
+            No description
+          </span>
+        )}
+      </td>
+      <td className="p-4">
+        {role.accountable_to_role ? (
+          <span className="text-sm">{role.accountable_to_role.name}</span>
+        ) : (
+          <span className="text-sm text-muted-foreground">—</span>
+        )}
+      </td>
+      <td className="p-4">
+        <ViewRoleMembersDialog
+          roleId={role.id}
+          roleName={role.name}
+          employeeCount={role.employee_count}
+          isAdmin={isAdmin}
+        />
+      </td>
+    </tr>
+  ))
+
+  const tableMarkup = (
     <div className="border rounded-lg overflow-hidden">
       <div className="overflow-x-auto">
         <table className="w-full">
@@ -104,68 +155,7 @@ export function RolesTable({ initialRoles, isAdmin }: RolesTableProps) {
               )}
             </tr>
           </thead>
-          <tbody>
-            {isAdmin ? (
-              <DndContext
-                sensors={sensors}
-                collisionDetection={closestCenter}
-                onDragEnd={handleDragEnd}
-              >
-                <SortableContext
-                  items={roles.map((r) => r.id)}
-                  strategy={verticalListSortingStrategy}
-                >
-                  {roles.map((role) => (
-                    <SortableRoleRow
-                      key={role.id}
-                      role={role}
-                      roles={roles}
-                      isAdmin={isAdmin}
-                    />
-                  ))}
-                </SortableContext>
-              </DndContext>
-            ) : (
-              roles.map((role) => (
-                <tr
-                  key={role.id}
-                  className="border-b last:border-b-0 hover:bg-muted/20 transition-colors"
-                >
-                  <td className="p-4">
-                    <p className="font-medium">{role.name}</p>
-                  </td>
-                  <td className="p-4">
-                    {role.description ? (
-                      <p className="text-sm text-muted-foreground line-clamp-2">
-                        {role.description}
-                      </p>
-                    ) : (
-                      <span className="text-sm text-muted-foreground italic">
-                        No description
-                      </span>
-                    )}
-                  </td>
-                  <td className="p-4">
-                    {role.accountable_to_role ? (
-                      <span className="text-sm">
-                        {role.accountable_to_role.name}
-                      </span>
-                    ) : (
-                      <span className="text-sm text-muted-foreground">—</span>
-                    )}
-                  </td>
-                  <td className="p-4">
-                    <ViewRoleMembersDialog
-                      roleId={role.id}
-                      roleName={role.name}
-                      employeeCount={role.employee_count}
-                      isAdmin={isAdmin}
-                    />
-                  </td>
-                </tr>
-              ))
-            )}
-          </tbody>
+          <tbody>{isAdmin ? adminRows : viewerRows}</tbody>
         </table>
       </div>
       {isReordering && (
@@ -174,5 +164,19 @@ export function RolesTable({ initialRoles, isAdmin }: RolesTableProps) {
         </div>
       )}
     </div>
+  )
+
+  if (!isAdmin) {
+    return tableMarkup
+  }
+
+  return (
+    <DndContext
+      sensors={sensors}
+      collisionDetection={closestCenter}
+      onDragEnd={handleDragEnd}
+    >
+      {tableMarkup}
+    </DndContext>
   )
 }

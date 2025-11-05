@@ -1,6 +1,5 @@
-import { redirect } from "next/navigation"
 import Link from "next/link"
-import { createClient } from "@/lib/supabase/server"
+import { requireUser } from "@/lib/auth/session"
 import { getTeamDetails } from "@/lib/actions/teams"
 import { getUserTeamRole } from "@/lib/auth/permissions"
 import { TeamHeader } from "./team-header"
@@ -16,16 +15,7 @@ export default async function TeamDetailPage({
   params: Promise<{ id: string }>
 }) {
   const { id } = await params
-  const supabase = await createClient()
-
-  // Check if user is authenticated
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-
-  if (!user) {
-    redirect("/login")
-  }
+  const { user } = await requireUser({ redirectTo: "/login" })
 
   // Fetch team details
   const { data: team, error } = await getTeamDetails(id)

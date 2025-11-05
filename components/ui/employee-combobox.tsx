@@ -37,9 +37,9 @@ export function EmployeeCombobox({
   const [open, setOpen] = React.useState(false)
 
   // Find employee by profile_id
-  const selectedEmployee = employees.find((employee) =>
-    employee.profile_id === value
-  )
+  const selectedEmployee = employees.find((employee) => employee.profile_id === value)
+  const getDisplayName = (employee: EmployeeWithProfile) =>
+    employee.full_name || employee.profile.full_name || 'Unknown'
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -50,7 +50,7 @@ export function EmployeeCombobox({
           aria-expanded={open}
           className="w-full justify-between"
         >
-          {selectedEmployee ? selectedEmployee.full_name : placeholder}
+          {selectedEmployee ? getDisplayName(selectedEmployee) : placeholder}
           <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
         </Button>
       </PopoverTrigger>
@@ -79,7 +79,7 @@ export function EmployeeCombobox({
               {employees.map((employee) => (
                 <CommandItem
                   key={employee.id}
-                  value={employee.full_name}
+                  value={getDisplayName(employee)}
                   onSelect={() => {
                     // Store profile_id as the value
                     onValueChange(employee.profile_id)
@@ -92,7 +92,7 @@ export function EmployeeCombobox({
                       employee.profile_id === value ? 'opacity-100' : 'opacity-0'
                     )}
                   />
-                  {employee.full_name}
+                  {getDisplayName(employee)}
                 </CommandItem>
               ))}
             </CommandGroup>

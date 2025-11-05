@@ -1,5 +1,5 @@
 import { redirect } from 'next/navigation'
-import { createClient } from '@/lib/supabase/server'
+import { requireUser } from '@/lib/auth/session'
 import { isSystemAdmin } from '@/lib/auth/permissions'
 import { getAllUsers } from '@/lib/actions/admin'
 import { UserAdminToggle } from './user-admin-toggle'
@@ -8,16 +8,7 @@ import { Shield, Users } from 'lucide-react'
 import Link from 'next/link'
 
 export default async function AdminUsersPage() {
-  const supabase = await createClient()
-
-  // Check authentication
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-
-  if (!user) {
-    redirect('/login')
-  }
+  const { user } = await requireUser({ redirectTo: '/login' })
 
   // Check system admin status
   const isAdmin = await isSystemAdmin(user.id)

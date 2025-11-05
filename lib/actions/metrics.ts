@@ -1,85 +1,8 @@
 'use server'
 
-import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
-import type { Tables } from '@/lib/types/database.types'
 
-type Scorecard = Tables<'scorecards'>
-type Metric = Tables<'metrics'>
-type MetricEntry = Tables<'metric_entries'>
-
-/**
- * Get scorecard with all its metrics and recent entries
- */
-export async function getScorecardWithMetrics(scorecardId: string): Promise<{
-  scorecard: Scorecard | null
-  metrics: Metric[] | null
-  entries: MetricEntry[] | null
-  error: string | null
-}> {
-  try {
-    const supabase = await createClient()
-
-    // Get current user
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
-
-    if (!user) {
-      return { scorecard: null, metrics: null, error: 'Not authenticated' }
-    }
-
-    // Fetch scorecard
-    const { data: scorecard, error: scorecardError } = await supabase
-      .from('scorecards')
-      .select('*')
-      .eq('id', scorecardId)
-      .eq('is_active', true)
-      .single()
-
-    if (scorecardError || !scorecard) {
-      console.error('Error fetching scorecard:', scorecardError)
-      return { scorecard: null, metrics: null, error: 'Scorecard not found' }
-    }
-
-    // Fetch metrics for this scorecard
-    const { data: metrics, error: metricsError } = await supabase
-      .from('metrics')
-      .select('*')
-      .eq('scorecard_id', scorecardId)
-      .eq('is_active', true)
-      .order('display_order', { ascending: true })
-
-    if (metricsError) {
-      console.error('Error fetching metrics:', metricsError)
-      return { scorecard, metrics: [], entries: [], error: null }
-    }
-
-    // Fetch metric entries for all metrics
-    let entries: MetricEntry[] = []
-    if (metrics && metrics.length > 0) {
-      const metricIds = metrics.map((m) => m.id)
-
-      const { data: entriesData, error: entriesError } = await supabase
-        .from('metric_entries')
-        .select('*')
-        .in('metric_id', metricIds)
-        .order('period_start', { ascending: false })
-
-      if (entriesError) {
-        console.error('Error fetching entries:', entriesError)
-        // Continue without entries rather than failing
-      } else {
-        entries = entriesData || []
-      }
-    }
-
-    return { scorecard, metrics: metrics || [], entries, error: null }
-  } catch (error) {
-    console.error('Unexpected error in getScorecardWithMetrics:', error)
-    return { scorecard: null, metrics: null, entries: null, error: 'An unexpected error occurred' }
-  }
-}
+import { AuthError, requireUser } from '@/lib/auth/session'
 
 /**
  * Create a new metric
@@ -93,16 +16,7 @@ export async function createMetric(
   metricId?: string
 }> {
   try {
-    const supabase = await createClient()
-
-    // Get current user
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
-
-    if (!user) {
-      return { success: false, error: 'Not authenticated' }
-    }
+    const { supabase } = await requireUser()
 
     // Extract and validate form data
     const name = formData.get('name') as string
@@ -220,6 +134,10 @@ export async function createMetric(
 
     return { success: true, metricId: metric.id }
   } catch (error) {
+    if (error instanceof AuthError) {
+      return { success: false, error: 'Not authenticated' }
+    }
+
     console.error('Unexpected error in createMetric:', error)
     return { success: false, error: 'An unexpected error occurred' }
   }
@@ -237,16 +155,7 @@ export async function updateMetric(
   error?: string
 }> {
   try {
-    const supabase = await createClient()
-
-    // Get current user
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
-
-    if (!user) {
-      return { success: false, error: 'Not authenticated' }
-    }
+    const { supabase } = await requireUser()
 
     // Extract and validate form data
     const name = formData.get('name') as string
@@ -343,6 +252,10 @@ export async function updateMetric(
 
     return { success: true }
   } catch (error) {
+    if (error instanceof AuthError) {
+      return { success: false, error: 'Not authenticated' }
+    }
+
     console.error('Unexpected error in updateMetric:', error)
     return { success: false, error: 'An unexpected error occurred' }
   }
@@ -359,16 +272,7 @@ export async function deleteMetric(
   error?: string
 }> {
   try {
-    const supabase = await createClient()
-
-    // Get current user
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
-
-    if (!user) {
-      return { success: false, error: 'Not authenticated' }
-    }
+    const { supabase } = await requireUser()
 
     // Soft delete (set is_active = false)
     const { error: deleteError } = await supabase
@@ -387,6 +291,10 @@ export async function deleteMetric(
 
     return { success: true }
   } catch (error) {
+    if (error instanceof AuthError) {
+      return { success: false, error: 'Not authenticated' }
+    }
+
     console.error('Unexpected error in deleteMetric:', error)
     return { success: false, error: 'An unexpected error occurred' }
   }

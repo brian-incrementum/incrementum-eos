@@ -1,12 +1,9 @@
-import { createClient } from "@/lib/supabase/server"
+import { getUser } from "@/lib/auth/session"
 import { SidebarTrigger } from "@/components/ui/sidebar"
 import { UserDropdown } from "./user-dropdown"
 
 export async function TopBar() {
-  const supabase = await createClient()
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
+  const { supabase, user } = await getUser()
 
   if (!user) {
     return null

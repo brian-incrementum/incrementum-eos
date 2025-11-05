@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import type { ScorecardWithDetails } from '@/lib/actions/scorecards'
+import type { ScorecardWithDetails } from '@/lib/types/scorecards'
 
 interface ScorecardsTableProps {
   scorecards: ScorecardWithDetails[]

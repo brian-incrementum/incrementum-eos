@@ -5,8 +5,9 @@
  * CRUD operations for teams with permission checks
  */
 
-import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
+
+import { AuthError, requireUser } from '@/lib/auth/session'
 import type { Tables } from '@/lib/types/database.types'
 import {
   requireTeamPermission,
@@ -33,27 +34,19 @@ export async function getUserTeams(): Promise<{
   error: string | null
 }> {
   try {
-    const supabase = await createClient()
-
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
-
-    if (!user) {
-      return { data: null, error: 'Not authenticated' }
-    }
+    const { supabase, user } = await requireUser()
 
     // Get teams where user is a member
-    const { data: teamMembers, error: membersError } = await supabase
+    const { data: membershipRows, error: membershipError } = await supabase
       .from('team_members')
       .select('team_id')
       .eq('user_id', user.id)
 
-    if (membersError) {
-      return { data: null, error: membersError.message }
+    if (membershipError) {
+      return { data: null, error: membershipError.message }
     }
 
-    const teamIds = teamMembers.map((m) => m.team_id)
+    const teamIds = Array.from(new Set(membershipRows.map((row) => row.team_id)))
 
     if (teamIds.length === 0) {
       return { data: [], error: null }
@@ -71,37 +64,68 @@ export async function getUserTeams(): Promise<{
       return { data: null, error: teamsError.message }
     }
 
-    // Fetch member counts and scorecard counts for each team
-    const teamsWithCounts = await Promise.all(
-      teams.map(async (team) => {
-        const [memberCountResult, scorecardCountResult, membersResult] = await Promise.all([
-          supabase
-            .from('team_members')
-            .select('id', { count: 'exact', head: true })
-            .eq('team_id', team.id),
-          supabase
-            .from('scorecards')
-            .select('id', { count: 'exact', head: true })
-            .eq('team_id', team.id)
-            .eq('is_active', true),
-          supabase
-            .from('team_members')
-            .select('*, profile:profiles(*)')
-            .eq('team_id', team.id)
-            .order('created_at'),
-        ])
+    const [memberRowsResult, scorecardRowsResult] = await Promise.all([
+      supabase
+        .from('team_members')
+        .select(
+          `
+            team_id,
+            id,
+            role,
+            created_at,
+            user_id,
+            profile:profiles(*)
+          `
+        )
+        .in('team_id', teamIds)
+        .order('created_at', { ascending: true }),
+      supabase
+        .from('scorecards')
+        .select('id, team_id')
+        .in('team_id', teamIds)
+        .eq('is_active', true),
+    ])
 
-        return {
-          ...team,
-          members: membersResult.data || [],
-          member_count: memberCountResult.count || 0,
-          scorecard_count: scorecardCountResult.count || 0,
-        }
-      })
-    )
+    if (memberRowsResult.error) {
+      console.error('Error fetching team members', memberRowsResult.error)
+    }
 
-    return { data: teamsWithCounts as TeamWithMembers[], error: null }
+    if (scorecardRowsResult.error) {
+      console.error('Error fetching team scorecards', scorecardRowsResult.error)
+    }
+
+    const membersByTeam = new Map<string, TeamWithMembers['members']>()
+    memberRowsResult.data?.forEach((row) => {
+      const members = membersByTeam.get(row.team_id) ?? []
+      members.push(row as TeamMember & { profile: Profile })
+      membersByTeam.set(row.team_id, members)
+    })
+
+    const scorecardCountByTeam = new Map<string, number>()
+    scorecardRowsResult.data?.forEach((row) => {
+      if (!row.team_id) {
+        return
+      }
+
+      scorecardCountByTeam.set(row.team_id, (scorecardCountByTeam.get(row.team_id) || 0) + 1)
+    })
+
+    const teamsWithAggregates = (teams || []).map((team) => {
+      const members = membersByTeam.get(team.id) ?? []
+      return {
+        ...team,
+        members,
+        member_count: members.length,
+        scorecard_count: scorecardCountByTeam.get(team.id) || 0,
+      }
+    })
+
+    return { data: teamsWithAggregates as TeamWithMembers[], error: null }
   } catch (error) {
+    if (error instanceof AuthError) {
+      return { data: null, error: 'Not authenticated' }
+    }
+
     return { data: null, error: (error as Error).message }
   }
 }
@@ -114,18 +138,10 @@ export async function getAllTeams(): Promise<{
   error: string | null
 }> {
   try {
-    const supabase = await createClient()
-
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
-
-    if (!user) {
-      return { data: null, error: 'Not authenticated' }
-    }
+    const { supabase, user } = await requireUser()
 
     // Check if user is system admin
-    const isAdmin = await isSystemAdmin(user.id)
+    const isAdmin = await isSystemAdmin(user.id, supabase)
 
     if (!isAdmin) {
       return { data: null, error: 'Not authorized - admin access required' }
@@ -144,6 +160,10 @@ export async function getAllTeams(): Promise<{
 
     return { data: teams, error: null }
   } catch (error) {
+    if (error instanceof AuthError) {
+      return { data: null, error: 'Not authenticated' }
+    }
+
     return { data: null, error: (error as Error).message }
   }
 }
@@ -156,15 +176,7 @@ export async function getTeamDetails(teamId: string): Promise<{
   error: string | null
 }> {
   try {
-    const supabase = await createClient()
-
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
-
-    if (!user) {
-      return { data: null, error: 'Not authenticated' }
-    }
+    const { supabase, user } = await requireUser()
 
     // Check if user has permission to view team
     const { data: membership } = await supabase
@@ -174,7 +186,7 @@ export async function getTeamDetails(teamId: string): Promise<{
       .eq('user_id', user.id)
       .single()
 
-    const isAdmin = await isSystemAdmin(user.id)
+    const isAdmin = await isSystemAdmin(user.id, supabase)
 
     if (!membership && !isAdmin) {
       return { data: null, error: 'Not authorized to view this team' }
@@ -192,35 +204,41 @@ export async function getTeamDetails(teamId: string): Promise<{
     }
 
     // Fetch members with profiles
-    const { data: members } = await supabase
-      .from('team_members')
-      .select('*, profile:profiles(*)')
-      .eq('team_id', teamId)
-      .order('created_at')
-
-    // Get counts
-    const [memberCountResult, scorecardCountResult] = await Promise.all([
+    const [membersResult, scorecardsResult] = await Promise.all([
       supabase
         .from('team_members')
-        .select('id', { count: 'exact', head: true })
-        .eq('team_id', teamId),
+        .select('*, profile:profiles(*)')
+        .eq('team_id', teamId)
+        .order('created_at'),
       supabase
         .from('scorecards')
-        .select('id', { count: 'exact', head: true })
+        .select('id')
         .eq('team_id', teamId)
         .eq('is_active', true),
     ])
 
+    if (membersResult.error) {
+      console.error('Error fetching team members', membersResult.error)
+    }
+
+    if (scorecardsResult.error) {
+      console.error('Error fetching team scorecards', scorecardsResult.error)
+    }
+
     return {
       data: {
         ...team,
-        members: members || [],
-        member_count: memberCountResult.count || 0,
-        scorecard_count: scorecardCountResult.count || 0,
+        members: membersResult.data || [],
+        member_count: membersResult.data?.length ?? 0,
+        scorecard_count: scorecardsResult.data?.length ?? 0,
       } as TeamWithMembers,
       error: null,
     }
   } catch (error) {
+    if (error instanceof AuthError) {
+      return { data: null, error: 'Not authenticated' }
+    }
+
     return { data: null, error: (error as Error).message }
   }
 }
@@ -236,15 +254,7 @@ export async function createTeam(data: {
   error: string | null
 }> {
   try {
-    const supabase = await createClient()
-
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
-
-    if (!user) {
-      return { data: null, error: 'Not authenticated' }
-    }
+    const { supabase, user } = await requireUser()
 
     // Create team
     const { data: team, error: teamError } = await supabase
@@ -279,6 +289,10 @@ export async function createTeam(data: {
     revalidatePath('/teams')
     return { data: team, error: null }
   } catch (error) {
+    if (error instanceof AuthError) {
+      return { data: null, error: 'Not authenticated' }
+    }
+
     return { data: null, error: (error as Error).message }
   }
 }
@@ -298,18 +312,10 @@ export async function updateTeam(
   error: string | null
 }> {
   try {
-    const supabase = await createClient()
-
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
-
-    if (!user) {
-      return { data: null, error: 'Not authenticated' }
-    }
+    const { supabase, user } = await requireUser()
 
     // Check permission
-    await requireTeamPermission(teamId, user.id, TEAM_ROLES.ADMIN)
+    await requireTeamPermission(teamId, user.id, TEAM_ROLES.ADMIN, supabase)
 
     // Update team
     const { data: team, error } = await supabase
@@ -327,6 +333,10 @@ export async function updateTeam(
     revalidatePath(`/teams/${teamId}`)
     return { data: team, error: null }
   } catch (error) {
+    if (error instanceof AuthError) {
+      return { data: null, error: 'Not authenticated' }
+    }
+
     return { data: null, error: (error as Error).message }
   }
 }
@@ -340,18 +350,10 @@ export async function archiveTeam(teamId: string): Promise<{
   error: string | null
 }> {
   try {
-    const supabase = await createClient()
-
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
-
-    if (!user) {
-      return { success: false, error: 'Not authenticated' }
-    }
+    const { supabase, user } = await requireUser()
 
     // Check if user can delete team
-    const canDelete = await canDeleteTeam(teamId, user.id)
+    const canDelete = await canDeleteTeam(teamId, user.id, supabase)
 
     if (!canDelete) {
       return { success: false, error: 'Only team owners can archive teams' }
@@ -370,6 +372,10 @@ export async function archiveTeam(teamId: string): Promise<{
     revalidatePath('/teams')
     return { success: true, error: null }
   } catch (error) {
+    if (error instanceof AuthError) {
+      return { success: false, error: 'Not authenticated' }
+    }
+
     return { success: false, error: (error as Error).message }
   }
 }
@@ -384,18 +390,10 @@ export async function deleteTeam(teamId: string): Promise<{
   error: string | null
 }> {
   try {
-    const supabase = await createClient()
-
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
-
-    if (!user) {
-      return { success: false, error: 'Not authenticated' }
-    }
+    const { supabase, user } = await requireUser()
 
     // Check if user can delete team
-    const canDelete = await canDeleteTeam(teamId, user.id)
+    const canDelete = await canDeleteTeam(teamId, user.id, supabase)
 
     if (!canDelete) {
       return { success: false, error: 'Only team owners can delete teams' }
@@ -428,6 +426,10 @@ export async function deleteTeam(teamId: string): Promise<{
     revalidatePath('/teams')
     return { success: true, error: null }
   } catch (error) {
+    if (error instanceof AuthError) {
+      return { success: false, error: 'Not authenticated' }
+    }
+
     return { success: false, error: (error as Error).message }
   }
 }

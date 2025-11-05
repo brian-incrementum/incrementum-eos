@@ -5,8 +5,9 @@
  * CRUD operations for roles with permission checks
  */
 
-import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
+
+import { AuthError, requireUser } from '@/lib/auth/session'
 import type { Tables, TablesInsert, TablesUpdate } from '@/lib/types/database.types'
 import { isSystemAdmin } from '@/lib/auth/permissions'
 
@@ -32,15 +33,7 @@ export async function getRoles(): Promise<{
   error: string | null
 }> {
   try {
-    const supabase = await createClient()
-
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
-
-    if (!user) {
-      return { data: null, error: 'Not authenticated' }
-    }
+    const { supabase } = await requireUser()
 
     // Get all roles
     const { data: roles, error: rolesError } = await supabase
@@ -89,6 +82,10 @@ export async function getRoles(): Promise<{
 
     return { data: rolesWithDetails, error: null }
   } catch (error) {
+    if (error instanceof AuthError) {
+      return { data: null, error: 'Not authenticated' }
+    }
+
     console.error('Error in getRoles:', error)
     return { data: null, error: 'An unexpected error occurred' }
   }
@@ -104,15 +101,7 @@ export async function getRoleById(
   error: string | null
 }> {
   try {
-    const supabase = await createClient()
-
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
-
-    if (!user) {
-      return { data: null, error: 'Not authenticated' }
-    }
+    const { supabase } = await requireUser()
 
     // Get the role
     const { data: role, error: roleError } = await supabase
@@ -161,6 +150,10 @@ export async function getRoleById(
 
     return { data: roleWithMembers, error: null }
   } catch (error) {
+    if (error instanceof AuthError) {
+      return { data: null, error: 'Not authenticated' }
+    }
+
     console.error('Error in getRoleById:', error)
     return { data: null, error: 'An unexpected error occurred' }
   }
@@ -178,15 +171,7 @@ export async function createRole(
   error: string | null
 }> {
   try {
-    const supabase = await createClient()
-
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
-
-    if (!user) {
-      return { data: null, error: 'Not authenticated' }
-    }
+    const { supabase, user } = await requireUser()
 
     // Check if user is system admin
     const isAdmin = await isSystemAdmin(user.id)
@@ -223,6 +208,10 @@ export async function createRole(
     revalidatePath('/roles')
     return { data: role, error: null }
   } catch (error) {
+    if (error instanceof AuthError) {
+      return { data: null, error: 'Not authenticated' }
+    }
+
     console.error('Error in createRole:', error)
     return { data: null, error: 'An unexpected error occurred' }
   }
@@ -241,15 +230,7 @@ export async function updateRole(
   error: string | null
 }> {
   try {
-    const supabase = await createClient()
-
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
-
-    if (!user) {
-      return { data: null, error: 'Not authenticated' }
-    }
+    const { supabase, user } = await requireUser()
 
     // Check if user is system admin
     const isAdmin = await isSystemAdmin(user.id)
@@ -292,6 +273,10 @@ export async function updateRole(
     revalidatePath('/roles')
     return { data: role, error: null }
   } catch (error) {
+    if (error instanceof AuthError) {
+      return { data: null, error: 'Not authenticated' }
+    }
+
     console.error('Error in updateRole:', error)
     return { data: null, error: 'An unexpected error occurred' }
   }
@@ -305,15 +290,7 @@ export async function deleteRole(roleId: string): Promise<{
   error: string | null
 }> {
   try {
-    const supabase = await createClient()
-
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
-
-    if (!user) {
-      return { data: false, error: 'Not authenticated' }
-    }
+    const { supabase, user } = await requireUser()
 
     // Check if user is system admin
     const isAdmin = await isSystemAdmin(user.id)
@@ -353,6 +330,10 @@ export async function deleteRole(roleId: string): Promise<{
     revalidatePath('/roles')
     return { data: true, error: null }
   } catch (error) {
+    if (error instanceof AuthError) {
+      return { data: false, error: 'Not authenticated' }
+    }
+
     console.error('Error in deleteRole:', error)
     return { data: false, error: 'An unexpected error occurred' }
   }
@@ -369,15 +350,7 @@ export async function assignUserToRole(
   error: string | null
 }> {
   try {
-    const supabase = await createClient()
-
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
-
-    if (!user) {
-      return { data: null, error: 'Not authenticated' }
-    }
+    const { supabase, user } = await requireUser()
 
     // Check if user is system admin
     const isAdmin = await isSystemAdmin(user.id)
@@ -417,6 +390,10 @@ export async function assignUserToRole(
     revalidatePath('/roles')
     return { data: assignment, error: null }
   } catch (error) {
+    if (error instanceof AuthError) {
+      return { data: null, error: 'Not authenticated' }
+    }
+
     console.error('Error in assignUserToRole:', error)
     return { data: null, error: 'An unexpected error occurred' }
   }
@@ -433,15 +410,7 @@ export async function removeUserFromRole(
   error: string | null
 }> {
   try {
-    const supabase = await createClient()
-
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
-
-    if (!user) {
-      return { data: false, error: 'Not authenticated' }
-    }
+    const { supabase, user } = await requireUser()
 
     // Check if user is system admin
     const isAdmin = await isSystemAdmin(user.id)
@@ -464,6 +433,10 @@ export async function removeUserFromRole(
     revalidatePath('/roles')
     return { data: true, error: null }
   } catch (error) {
+    if (error instanceof AuthError) {
+      return { data: false, error: 'Not authenticated' }
+    }
+
     console.error('Error in removeUserFromRole:', error)
     return { data: false, error: 'An unexpected error occurred' }
   }
@@ -479,15 +452,7 @@ export async function reorderRoles(
   error: string | null
 }> {
   try {
-    const supabase = await createClient()
-
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
-
-    if (!user) {
-      return { data: false, error: 'Not authenticated' }
-    }
+    const { supabase, user } = await requireUser()
 
     // Check if user is system admin
     const isAdmin = await isSystemAdmin(user.id)
@@ -513,6 +478,10 @@ export async function reorderRoles(
     revalidatePath('/roles')
     return { data: true, error: null }
   } catch (error) {
+    if (error instanceof AuthError) {
+      return { data: false, error: 'Not authenticated' }
+    }
+
     console.error('Error in reorderRoles:', error)
     return { data: false, error: 'An unexpected error occurred' }
   }
@@ -526,15 +495,7 @@ export async function getActiveProfiles(): Promise<{
   error: string | null
 }> {
   try {
-    const supabase = await createClient()
-
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
-
-    if (!user) {
-      return { data: null, error: 'Not authenticated' }
-    }
+    const { supabase } = await requireUser()
 
     const { data: profiles, error: profilesError } = await supabase
       .from('profiles')
@@ -549,6 +510,10 @@ export async function getActiveProfiles(): Promise<{
 
     return { data: profiles || [], error: null }
   } catch (error) {
+    if (error instanceof AuthError) {
+      return { data: null, error: 'Not authenticated' }
+    }
+
     console.error('Error in getActiveProfiles:', error)
     return { data: null, error: 'An unexpected error occurred' }
   }

@@ -1,7 +1,7 @@
 import { SidebarProvider } from "@/components/ui/sidebar"
 import { AppSidebar } from "@/components/layout/app-sidebar"
 import { TopBar } from "@/components/layout/top-bar"
-import { createClient } from "@/lib/supabase/server"
+import { requireUser } from "@/lib/auth/session"
 import { isSystemAdmin } from "@/lib/auth/permissions"
 
 export default async function AuthenticatedLayout({
@@ -9,10 +9,7 @@ export default async function AuthenticatedLayout({
 }: {
   children: React.ReactNode
 }) {
-  const supabase = await createClient()
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
+  const { user } = await requireUser({ redirectTo: "/login" })
 
   // Check if user is system admin
   const isAdmin = user ? await isSystemAdmin(user.id) : false

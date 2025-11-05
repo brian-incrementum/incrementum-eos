@@ -1,14 +1,30 @@
 'use server'
 
-import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
+
+import { AuthError, requireUser } from '@/lib/auth/session'
 import type { Tables } from '@/lib/types/database.types'
 
 type Profile = Tables<'profiles'>
 type ScorecardMember = Tables<'scorecard_members'>
+type TeamMember = Tables<'team_members'>
 
 export interface MemberWithProfile extends ScorecardMember {
   profile: Profile
+}
+
+type TeamMemberWithProfile = TeamMember & { profile: Profile | null }
+
+const mapTeamRoleToScorecardRole = (role: TeamMember['role']): MemberWithProfile['role'] => {
+  if (role === 'owner') {
+    return 'owner'
+  }
+
+  if (role === 'admin') {
+    return 'editor'
+  }
+
+  return 'viewer'
 }
 
 /**
@@ -21,16 +37,7 @@ export async function getScorecardMembers(scorecardId: string): Promise<{
   error: string | null
 }> {
   try {
-    const supabase = await createClient()
-
-    // Check auth
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
-
-    if (!user) {
-      return { members: null, error: 'Not authenticated' }
-    }
+    const { supabase } = await requireUser()
 
     // First, fetch the scorecard to check its type and team_id
     const { data: scorecard, error: scorecardError } = await supabase
@@ -64,14 +71,17 @@ export async function getScorecardMembers(scorecardId: string): Promise<{
       }
 
       // Map team members to MemberWithProfile format
-      const members: MemberWithProfile[] = (teamMembers || []).map((tm: any) => ({
-        id: tm.id,
-        scorecard_id: scorecardId, // Use scorecardId for consistency
-        user_id: tm.user_id,
-        role: tm.role === 'owner' ? 'owner' : tm.role === 'admin' ? 'editor' : 'viewer', // Map team roles to scorecard roles
-        created_at: tm.created_at,
-        profile: tm.profile
-      }))
+      const members: MemberWithProfile[] = (teamMembers || [])
+        .map((teamMember) => teamMember as TeamMemberWithProfile)
+        .filter((teamMember): teamMember is TeamMemberWithProfile => Boolean(teamMember.profile))
+        .map((teamMember) => ({
+          id: teamMember.id,
+          scorecard_id: scorecardId, // Use scorecardId for consistency
+          user_id: teamMember.user_id,
+          role: mapTeamRoleToScorecardRole(teamMember.role), // Map team roles to scorecard roles
+          created_at: teamMember.created_at,
+          profile: teamMember.profile as Profile,
+        }))
 
       return { members, error: null }
     }
@@ -93,6 +103,10 @@ export async function getScorecardMembers(scorecardId: string): Promise<{
 
     return { members: members as MemberWithProfile[], error: null }
   } catch (error) {
+    if (error instanceof AuthError) {
+      return { members: null, error: 'Not authenticated' }
+    }
+
     console.error('Unexpected error in getScorecardMembers:', error)
     return { members: null, error: 'An unexpected error occurred' }
   }
@@ -109,19 +123,10 @@ export async function getMemberMetricCount(
   error: string | null
 }> {
   try {
-    const supabase = await createClient()
-
-    // Check auth
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
-
-    if (!user) {
-      return { count: 0, error: 'Not authenticated' }
-    }
+    const { supabase } = await requireUser()
 
     // Count metrics owned by this user in this scorecard
-    const { data, error: countError } = await supabase
+    const { count, error: countError } = await supabase
       .from('metrics')
       .select('id', { count: 'exact', head: true })
       .eq('scorecard_id', scorecardId)
@@ -133,8 +138,12 @@ export async function getMemberMetricCount(
       return { count: 0, error: 'Failed to count metrics' }
     }
 
-    return { count: data?.length || 0, error: null }
+    return { count: count ?? 0, error: null }
   } catch (error) {
+    if (error instanceof AuthError) {
+      return { count: 0, error: 'Not authenticated' }
+    }
+
     console.error('Unexpected error in getMemberMetricCount:', error)
     return { count: 0, error: 'An unexpected error occurred' }
   }
@@ -153,16 +162,7 @@ export async function addScorecardMember(
   error?: string
 }> {
   try {
-    const supabase = await createClient()
-
-    // Check auth
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
-
-    if (!user) {
-      return { success: false, error: 'Not authenticated' }
-    }
+    const { supabase } = await requireUser()
 
     // Check if this is a team scorecard
     const { data: scorecard } = await supabase
@@ -207,6 +207,10 @@ export async function addScorecardMember(
     revalidatePath(`/scorecards/${scorecardId}`)
     return { success: true }
   } catch (error) {
+    if (error instanceof AuthError) {
+      return { success: false, error: 'Not authenticated' }
+    }
+
     console.error('Unexpected error in addScorecardMember:', error)
     return { success: false, error: 'An unexpected error occurred' }
   }
@@ -225,16 +229,7 @@ export async function removeScorecardMember(
   error?: string
 }> {
   try {
-    const supabase = await createClient()
-
-    // Check auth
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
-
-    if (!user) {
-      return { success: false, error: 'Not authenticated' }
-    }
+    const { supabase } = await requireUser()
 
     // Check if this is a team scorecard
     const { data: scorecard } = await supabase
@@ -290,6 +285,10 @@ export async function removeScorecardMember(
     revalidatePath(`/scorecards/${scorecardId}`)
     return { success: true }
   } catch (error) {
+    if (error instanceof AuthError) {
+      return { success: false, error: 'Not authenticated' }
+    }
+
     console.error('Unexpected error in removeScorecardMember:', error)
     return { success: false, error: 'An unexpected error occurred' }
   }
@@ -308,16 +307,7 @@ export async function updateMemberRole(
   error?: string
 }> {
   try {
-    const supabase = await createClient()
-
-    // Check auth
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
-
-    if (!user) {
-      return { success: false, error: 'Not authenticated' }
-    }
+    const { supabase } = await requireUser()
 
     // Check if this is a team scorecard
     const { data: scorecard } = await supabase
@@ -348,6 +338,10 @@ export async function updateMemberRole(
     revalidatePath(`/scorecards/${scorecardId}`)
     return { success: true }
   } catch (error) {
+    if (error instanceof AuthError) {
+      return { success: false, error: 'Not authenticated' }
+    }
+
     console.error('Unexpected error in updateMemberRole:', error)
     return { success: false, error: 'An unexpected error occurred' }
   }

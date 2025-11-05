@@ -3,6 +3,7 @@
  * Centralized authorization logic for teams and scorecards
  */
 
+import type { SupabaseClient } from '@supabase/supabase-js'
 import { createClient } from '@/lib/supabase/server'
 import {
   TEAM_ROLES,
@@ -12,14 +13,25 @@ import {
   type TeamRole,
   type ScorecardRole,
 } from './constants'
+import type { Database } from '@/lib/types/database.types'
+
+type Supabase = SupabaseClient<Database>
+
+async function resolveClient(existingClient?: Supabase): Promise<Supabase> {
+  if (existingClient) {
+    return existingClient
+  }
+
+  return createClient()
+}
 
 /**
  * Check if a user is a system administrator
  */
-export async function isSystemAdmin(userId: string): Promise<boolean> {
-  const supabase = await createClient()
+export async function isSystemAdmin(userId: string, supabase?: Supabase): Promise<boolean> {
+  const client = await resolveClient(supabase)
 
-  const { data, error } = await supabase
+  const { data, error } = await client
     .from('profiles')
     .select('is_system_admin')
     .eq('id', userId)
@@ -38,11 +50,12 @@ export async function isSystemAdmin(userId: string): Promise<boolean> {
  */
 export async function getUserTeamRole(
   teamId: string,
-  userId: string
+  userId: string,
+  supabase?: Supabase
 ): Promise<TeamRole | null> {
-  const supabase = await createClient()
+  const client = await resolveClient(supabase)
 
-  const { data, error } = await supabase
+  const { data, error } = await client
     .from('team_members')
     .select('role')
     .eq('team_id', teamId)
@@ -63,14 +76,15 @@ export async function getUserTeamRole(
 export async function checkTeamPermission(
   teamId: string,
   userId: string,
-  requiredRole: TeamRole = TEAM_ROLES.MEMBER
+  requiredRole: TeamRole = TEAM_ROLES.MEMBER,
+  supabase?: Supabase
 ): Promise<boolean> {
   // System admins have all permissions
-  if (await isSystemAdmin(userId)) {
+  if (await isSystemAdmin(userId, supabase)) {
     return true
   }
 
-  const userRole = await getUserTeamRole(teamId, userId)
+  const userRole = await getUserTeamRole(teamId, userId, supabase)
 
   if (!userRole) {
     return false
@@ -86,9 +100,10 @@ export async function checkTeamPermission(
 export async function requireTeamPermission(
   teamId: string,
   userId: string,
-  requiredRole: TeamRole = TEAM_ROLES.MEMBER
+  requiredRole: TeamRole = TEAM_ROLES.MEMBER,
+  supabase?: Supabase
 ): Promise<void> {
-  const hasPermission = await checkTeamPermission(teamId, userId, requiredRole)
+  const hasPermission = await checkTeamPermission(teamId, userId, requiredRole, supabase)
 
   if (!hasPermission) {
     throw new Error('Unauthorized: Insufficient team permissions')
@@ -102,12 +117,13 @@ export async function requireTeamPermission(
  */
 export async function getUserScorecardRole(
   scorecardId: string,
-  userId: string
+  userId: string,
+  supabase?: Supabase
 ): Promise<ScorecardRole | null> {
-  const supabase = await createClient()
+  const client = await resolveClient(supabase)
 
   // First check if user is the owner
-  const { data: scorecard } = await supabase
+  const { data: scorecard } = await client
     .from('scorecards')
     .select('owner_user_id')
     .eq('id', scorecardId)
@@ -118,7 +134,7 @@ export async function getUserScorecardRole(
   }
 
   // Check scorecard_members table
-  const { data, error } = await supabase
+  const { data, error } = await client
     .from('scorecard_members')
     .select('role')
     .eq('scorecard_id', scorecardId)
@@ -139,14 +155,15 @@ export async function getUserScorecardRole(
 export async function checkScorecardPermission(
   scorecardId: string,
   userId: string,
-  requiredRole: ScorecardRole = SCORECARD_ROLES.VIEWER
+  requiredRole: ScorecardRole = SCORECARD_ROLES.VIEWER,
+  supabase?: Supabase
 ): Promise<boolean> {
   // System admins have all permissions
-  if (await isSystemAdmin(userId)) {
+  if (await isSystemAdmin(userId, supabase)) {
     return true
   }
 
-  const userRole = await getUserScorecardRole(scorecardId, userId)
+  const userRole = await getUserScorecardRole(scorecardId, userId, supabase)
 
   if (!userRole) {
     return false
@@ -162,9 +179,10 @@ export async function checkScorecardPermission(
 export async function requireScorecardPermission(
   scorecardId: string,
   userId: string,
-  requiredRole: ScorecardRole = SCORECARD_ROLES.VIEWER
+  requiredRole: ScorecardRole = SCORECARD_ROLES.VIEWER,
+  supabase?: Supabase
 ): Promise<void> {
-  const hasPermission = await checkScorecardPermission(scorecardId, userId, requiredRole)
+  const hasPermission = await checkScorecardPermission(scorecardId, userId, requiredRole, supabase)
 
   if (!hasPermission) {
     throw new Error('Unauthorized: Insufficient scorecard permissions')
@@ -177,9 +195,10 @@ export async function requireScorecardPermission(
  */
 export async function canManageTeamMembers(
   teamId: string,
-  userId: string
+  userId: string,
+  supabase?: Supabase
 ): Promise<boolean> {
-  return checkTeamPermission(teamId, userId, TEAM_ROLES.ADMIN)
+  return checkTeamPermission(teamId, userId, TEAM_ROLES.ADMIN, supabase)
 }
 
 /**
@@ -188,9 +207,10 @@ export async function canManageTeamMembers(
  */
 export async function canDeleteTeam(
   teamId: string,
-  userId: string
+  userId: string,
+  supabase?: Supabase
 ): Promise<boolean> {
-  return checkTeamPermission(teamId, userId, TEAM_ROLES.OWNER)
+  return checkTeamPermission(teamId, userId, TEAM_ROLES.OWNER, supabase)
 }
 
 /**
@@ -199,9 +219,10 @@ export async function canDeleteTeam(
  */
 export async function canCreateTeamScorecard(
   teamId: string,
-  userId: string
+  userId: string,
+  supabase?: Supabase
 ): Promise<boolean> {
-  return checkTeamPermission(teamId, userId, TEAM_ROLES.ADMIN)
+  return checkTeamPermission(teamId, userId, TEAM_ROLES.ADMIN, supabase)
 }
 
 /**

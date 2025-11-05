@@ -1,5 +1,4 @@
-import { createClient } from '@/lib/supabase/server'
-import { redirect } from 'next/navigation'
+import { requireUser } from '@/lib/auth/session'
 import { Briefcase } from 'lucide-react'
 import { getRoles } from '@/lib/actions/roles'
 import { isSystemAdmin } from '@/lib/auth/permissions'
@@ -9,15 +8,7 @@ import { OrgChartView } from './org-chart-view'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 
 export default async function RolesPage() {
-  const supabase = await createClient()
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-
-  if (!user) {
-    redirect('/login')
-  }
+  const { user } = await requireUser({ redirectTo: '/login' })
 
   // Check if user is system admin
   const isAdmin = await isSystemAdmin(user.id)
