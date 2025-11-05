@@ -2,6 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 
 import type { Database, Tables } from '@/lib/types/database.types'
 import type { EmployeeWithProfile } from '@/lib/actions/employees'
+import { loadScorecardAggregateViaRPC } from './scorecard-rpc'
 
 type Scorecard = Tables<'scorecards'>
 type Metric = Tables<'metrics'>
@@ -23,6 +24,7 @@ export interface ScorecardAggregate {
 interface LoadScorecardAggregateOptions {
   supabase: SupabaseClient<Database>
   scorecardId: string
+  userId?: string
 }
 
 interface ScorecardLoaderResult {
@@ -41,11 +43,26 @@ type TeamMemberWithProfile = {
  * - Metrics with their recent entries
  * - Metric owner profiles
  * - Eligible employees for ownership reassignment
+ *
+ * Feature flag: ENABLE_SCORECARD_RPC_LOADER
+ * - When true: Uses optimized RPC function (single database call)
+ * - When false: Uses legacy multi-query loader (fallback)
  */
 export async function loadScorecardAggregate({
   supabase,
   scorecardId,
+  userId,
 }: LoadScorecardAggregateOptions): Promise<ScorecardLoaderResult> {
+  // Feature flag: Use RPC loader if enabled and userId is provided
+  const useRpcLoader = process.env.ENABLE_SCORECARD_RPC_LOADER === 'true'
+
+  if (useRpcLoader && userId) {
+    console.log('[Scorecard Loader] Using RPC loader (optimized)')
+    return loadScorecardAggregateViaRPC({ supabase, scorecardId, userId })
+  }
+
+  // Fallback to legacy multi-query loader
+  console.log('[Scorecard Loader] Using legacy multi-query loader')
   const {
     data: scorecard,
     error: scorecardError,

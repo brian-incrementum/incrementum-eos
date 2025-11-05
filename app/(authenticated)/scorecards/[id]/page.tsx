@@ -11,7 +11,11 @@ export default async function ScorecardDetailPage({
 }) {
   const { id } = await params
   const { supabase, user } = await requireUser({ redirectTo: '/login' })
-  const { data, error } = await loadScorecardAggregate({ supabase, scorecardId: id })
+  const { data, error } = await loadScorecardAggregate({
+    supabase,
+    scorecardId: id,
+    userId: user.id,
+  })
 
   if (error || !data) {
     return (
