@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useTransition, useEffect } from 'react'
-import { X, UserPlus, Trash2 } from 'lucide-react'
+import { UserPlus, Trash2 } from 'lucide-react'
 import {
   Sheet,
   SheetContent,
@@ -20,6 +20,7 @@ import {
 } from '@/lib/actions/scorecard-members'
 import type { Tables } from '@/lib/types/database.types'
 import type { EmployeeWithProfile } from '@/lib/actions/employees'
+import { DeleteScorecardDialog } from './delete-scorecard-dialog'
 
 type Scorecard = Tables<'scorecards'>
 
@@ -29,6 +30,7 @@ interface EditScorecardSheetProps {
   scorecard: Scorecard
   employees: EmployeeWithProfile[]
   currentUserId: string
+  isAdmin: boolean
 }
 
 export function EditScorecardSheet({
@@ -37,12 +39,14 @@ export function EditScorecardSheet({
   scorecard,
   employees,
   currentUserId,
+  isAdmin,
 }: EditScorecardSheetProps) {
   const [isPending, startTransition] = useTransition()
   const [error, setError] = useState<string | null>(null)
   const [members, setMembers] = useState<MemberWithProfile[]>([])
   const [selectedEmployeeId, setSelectedEmployeeId] = useState('')
   const [selectedRole, setSelectedRole] = useState<'editor' | 'viewer'>('editor')
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false)
 
   // Load members when sheet opens
   useEffect(() => {
@@ -255,9 +259,50 @@ export function EditScorecardSheet({
                 )}
               </div>
             </section>
+
+            {/* Delete Scorecard Section - Only for Admins */}
+            {isAdmin && (
+              <section className="pt-6 border-t border-gray-200">
+                <h3 className="text-sm font-semibold text-gray-900 uppercase tracking-wide mb-4">
+                  Danger Zone
+                </h3>
+                <div className="p-4 bg-red-50 border border-red-200 rounded-lg">
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <h4 className="text-sm font-semibold text-red-900 mb-1">
+                        Delete Scorecard
+                      </h4>
+                      <p className="text-sm text-red-700">
+                        Permanently delete this scorecard and all associated data. This action cannot be undone.
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => setShowDeleteDialog(true)}
+                      className="flex-shrink-0 px-4 py-2 bg-red-600 text-white text-sm font-medium rounded-lg hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 transition-colors flex items-center gap-2"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                      Delete
+                    </button>
+                  </div>
+                </div>
+              </section>
+            )}
           </div>
         </div>
       </SheetContent>
+
+      <DeleteScorecardDialog
+        open={showDeleteDialog}
+        onOpenChange={(open) => {
+          setShowDeleteDialog(open)
+          // Close the edit sheet when delete dialog closes after successful deletion
+          if (!open) {
+            onOpenChange(false)
+          }
+        }}
+        scorecardId={scorecard.id}
+        scorecardName={scorecard.name ?? 'Scorecard'}
+      />
     </Sheet>
   )
 }
