@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useTransition, useRef, useEffect } from 'react'
+import { useState, useTransition, useRef, useEffect, useOptimistic } from 'react'
 import type { ReactNode } from 'react'
 import { MessageSquare, Pencil } from 'lucide-react'
 import type { Tables } from '@/lib/types/database.types'
@@ -70,6 +70,55 @@ export function TableView({ metrics, onMetricClick, onNoteClick, onArchiveMetric
   })
   const [isPending, startTransition] = useTransition()
   const inputRef = useRef<HTMLInputElement>(null)
+
+  // Optimistic state for instant UI updates
+  const [optimisticMetrics, setOptimisticMetrics] = useOptimistic(
+    metrics,
+    (state, { metricId, periodStart, value, note }: { metricId: string; periodStart: string; value: number | null; note?: string | null }) => {
+      return state.map(metric => {
+        if (metric.id !== metricId) return metric
+
+        // Handle deletion (value is null)
+        if (value === null) {
+          return {
+            ...metric,
+            entries: metric.entries.filter(e => e.period_start !== periodStart)
+          }
+        }
+
+        // Handle upsert
+        const existingEntryIndex = metric.entries.findIndex(e => e.period_start === periodStart)
+
+        if (existingEntryIndex >= 0) {
+          // Update existing entry
+          const newEntries = [...metric.entries]
+          newEntries[existingEntryIndex] = {
+            ...newEntries[existingEntryIndex],
+            value,
+            note: note !== undefined ? note : newEntries[existingEntryIndex].note,
+          }
+          return { ...metric, entries: newEntries }
+        } else {
+          // Add new entry
+          return {
+            ...metric,
+            entries: [
+              ...metric.entries,
+              {
+                id: `temp-${Date.now()}`, // Temporary ID
+                metric_id: metricId,
+                period_start: periodStart,
+                value,
+                note: note || null,
+                created_at: new Date().toISOString(),
+                created_by: currentUserId,
+              } as MetricEntry
+            ]
+          }
+        }
+      })
+    }
+  )
 
   useEffect(() => {
     if (editingCell && inputRef.current) {
@@ -143,22 +192,26 @@ export function TableView({ metrics, onMetricClick, onNoteClick, onArchiveMetric
     })
   }
 
-  const handleSaveEdit = (metric: MetricWithEntries, periodStart: string) => {
+  const handleSaveEdit = async (metric: MetricWithEntries, periodStart: string) => {
     // Check if user wants to delete the entry (empty value)
     if (editValue.trim() === '') {
       // Find the existing entry to see if there's something to delete
       const existingEntry = metric.entries.find(e => e.period_start === periodStart)
 
       if (existingEntry) {
-        // Delete the entry
+        setEditingCell(null)
+
+        // Delete in background with optimistic update
         startTransition(async () => {
+          // Optimistically delete the entry
+          setOptimisticMetrics({ metricId: metric.id, periodStart, value: null })
+
           const result = await deleteMetricEntry(metric.id, periodStart, metric.scorecard_id)
 
           if (!result.success) {
             alert(result.error || 'Failed to delete entry')
+            // Note: Server revalidation will restore the correct state
           }
-
-          setEditingCell(null)
         })
       } else {
         // Nothing to delete, just cancel
@@ -176,6 +229,8 @@ export function TableView({ metrics, onMetricClick, onNoteClick, onArchiveMetric
     // Find the existing entry to preserve its note
     const existingEntry = metric.entries.find(e => e.period_start === periodStart)
 
+    setEditingCell(null)
+
     const formData = new FormData()
     formData.append('value', editValue)
     formData.append('period_start', periodStart)
@@ -185,15 +240,22 @@ export function TableView({ metrics, onMetricClick, onNoteClick, onArchiveMetric
       formData.append('note', existingEntry.note)
     }
 
+    // Save in background with optimistic update
     startTransition(async () => {
-      // Find the scorecard ID from the metric
+      // Optimistically update the UI immediately
+      setOptimisticMetrics({
+        metricId: metric.id,
+        periodStart,
+        value: newValue,
+        note: existingEntry?.note || null
+      })
+
       const result = await upsertMetricEntry(metric.id, metric.scorecard_id, formData)
 
       if (!result.success) {
         alert(result.error || 'Failed to save value')
+        // Note: Server revalidation will restore the correct state
       }
-
-      setEditingCell(null)
     })
   }
 
@@ -393,7 +455,7 @@ export function TableView({ metrics, onMetricClick, onNoteClick, onArchiveMetric
               </tr>
             </thead>
             <tbody>
-              {metrics.map((metric) => {
+              {optimisticMetrics.map((metric) => {
                 const avg = getAverage(metric.entries)
 
                 // Create a map of period_start to entry for quick lookup
@@ -493,7 +555,6 @@ export function TableView({ metrics, onMetricClick, onNoteClick, onArchiveMetric
                                     onChange={(e) => setEditValue(e.target.checked ? '1' : '0')}
                                     onBlur={() => handleSaveEdit(metric, periodStart)}
                                     onKeyDown={(e) => handleKeyDown(e, metric, periodStart)}
-                                    disabled={isPending}
                                     className="h-4 w-4 rounded border border-gray-300 text-blue-600 focus:ring-2 focus:ring-blue-500"
                                   />
                                   <span className="text-sm">{editValue === '1' ? 'Yes' : 'No'}</span>
@@ -507,7 +568,6 @@ export function TableView({ metrics, onMetricClick, onNoteClick, onArchiveMetric
                                   onChange={(e) => setEditValue(e.target.value)}
                                   onBlur={() => handleSaveEdit(metric, periodStart)}
                                   onKeyDown={(e) => handleKeyDown(e, metric, periodStart)}
-                                  disabled={isPending}
                                   className="h-9 w-full rounded-md border border-blue-300 bg-blue-50 px-2 text-center text-sm font-medium text-gray-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
                                 />
                               )

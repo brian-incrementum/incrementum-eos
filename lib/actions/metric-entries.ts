@@ -12,7 +12,7 @@ export async function upsertMetricEntry(
   metricId: string,
   scorecardId: string,
   formData: FormData
-): Promise<{ success: boolean; error?: string }> {
+): Promise<{ success: boolean; error?: string; entry?: { metric_id: string; period_start: string; value: number; note: string | null } }> {
   try {
     const { supabase, user } = await requireUser()
 
@@ -78,7 +78,15 @@ export async function upsertMetricEntry(
     // Revalidate scorecard detail page
     revalidatePath(`/scorecards/${scorecardId}`)
 
-    return { success: true }
+    return {
+      success: true,
+      entry: {
+        metric_id: metricId,
+        period_start: periodStartStr,
+        value,
+        note: note || null,
+      }
+    }
   } catch (error) {
     if (error instanceof AuthError) {
       return { success: false, error: 'Not authenticated' }
