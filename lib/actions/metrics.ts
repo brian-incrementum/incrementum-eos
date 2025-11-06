@@ -409,3 +409,48 @@ export async function deleteMetric(
 }> {
   return archiveMetric(metricId, scorecardId)
 }
+
+/**
+ * Reorder metrics by updating their display_order
+ */
+export async function reorderMetrics(
+  metricOrders: { id: string; display_order: number }[],
+  scorecardId: string
+): Promise<{
+  success: boolean
+  error?: string
+}> {
+  try {
+    const { supabase } = await requireUser()
+
+    // Update each metric's display_order in a transaction-like batch
+    const updates = metricOrders.map((metric) =>
+      supabase
+        .from('metrics')
+        .update({ display_order: metric.display_order })
+        .eq('id', metric.id)
+        .eq('scorecard_id', scorecardId)
+    )
+
+    const results = await Promise.all(updates)
+
+    // Check if any updates failed
+    const failedUpdate = results.find((result) => result.error)
+    if (failedUpdate?.error) {
+      console.error('Error reordering metrics:', failedUpdate.error)
+      return { success: false, error: 'Failed to reorder metrics' }
+    }
+
+    // Revalidate the scorecard page
+    revalidatePath(`/scorecards/${scorecardId}`)
+
+    return { success: true }
+  } catch (error) {
+    if (error instanceof AuthError) {
+      return { success: false, error: 'Not authenticated' }
+    }
+
+    console.error('Unexpected error in reorderMetrics:', error)
+    return { success: false, error: 'An unexpected error occurred' }
+  }
+}

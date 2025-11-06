@@ -2,9 +2,24 @@
 
 import { useState, useTransition, useRef, useEffect, useOptimistic } from 'react'
 import type { ReactNode } from 'react'
-import { MessageSquare, Pencil } from 'lucide-react'
+import { MessageSquare, Pencil, GripVertical } from 'lucide-react'
 import type { Tables } from '@/lib/types/database.types'
 import type { EmployeeWithProfile } from '@/lib/actions/employees'
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from '@dnd-kit/core'
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable'
 import {
   formatValue,
   formatGoal,
@@ -15,7 +30,7 @@ import {
   getInitials,
 } from '@/lib/utils/scorecard-ui-helpers'
 import { upsertMetricEntry, deleteMetricEntry } from '@/lib/actions/metric-entries'
-import { archiveMetric } from '@/lib/actions/metrics'
+import { archiveMetric, reorderMetrics } from '@/lib/actions/metrics'
 import { getLastNPeriods, parseISODate } from '@/lib/utils/date-helpers'
 import { ContextMenu } from './context-menu'
 import { ColumnResizeHandle } from './column-resize-handle'
@@ -23,6 +38,7 @@ import { EditMetricModal } from '../edit-metric-modal'
 import { Checkbox } from '@/components/ui/checkbox'
 import { BulkActionBar } from './bulk-action-bar'
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar'
+import { SortableMetricRow } from './sortable-metric-row'
 
 type Metric = Tables<'metrics'>
 type MetricEntry = Tables<'metric_entries'>
@@ -56,6 +72,8 @@ interface ContextMenuState {
 }
 
 export function TableView({ metrics, onMetricClick, onNoteClick, onArchiveMetric, scorecardId, employees, currentUserId }: TableViewProps) {
+  const [orderedMetrics, setOrderedMetrics] = useState(metrics)
+  const [isReordering, setIsReordering] = useState(false)
   const [editingCell, setEditingCell] = useState<EditingCell | null>(null)
   const [editValue, setEditValue] = useState('')
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null)
@@ -63,6 +81,7 @@ export function TableView({ metrics, onMetricClick, onNoteClick, onArchiveMetric
   const [selectedMetricForEdit, setSelectedMetricForEdit] = useState<MetricWithEntries | null>(null)
   const [selectedMetricIds, setSelectedMetricIds] = useState<Set<string>>(new Set())
   const [columnWidths, setColumnWidths] = useState({
+    dragHandle: 36,
     checkbox: 40,
     title: 160,
     goal: 100,
@@ -72,9 +91,22 @@ export function TableView({ metrics, onMetricClick, onNoteClick, onArchiveMetric
   const [isPending, startTransition] = useTransition()
   const inputRef = useRef<HTMLInputElement>(null)
 
+  // Setup drag and drop sensors
+  const sensors = useSensors(
+    useSensor(PointerSensor),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    })
+  )
+
+  // Update ordered metrics when props change
+  useEffect(() => {
+    setOrderedMetrics(metrics)
+  }, [metrics])
+
   // Optimistic state for instant UI updates
   const [optimisticMetrics, setOptimisticMetrics] = useOptimistic(
-    metrics,
+    orderedMetrics,
     (state, { metricId, periodStart, value, note }: { metricId: string; periodStart: string; value: number | null; note?: string | null }) => {
       return state.map(metric => {
         if (metric.id !== metricId) return metric
@@ -286,6 +318,49 @@ export function TableView({ metrics, onMetricClick, onNoteClick, onArchiveMetric
     setEditMetricModalOpen(true)
   }
 
+  const handleDragEnd = async (event: DragEndEvent) => {
+    const { active, over } = event
+
+    if (!over || active.id === over.id) {
+      return
+    }
+
+    // Optimistically update the UI
+    setOrderedMetrics((items) => {
+      const oldIndex = items.findIndex((item) => item.id === active.id)
+      const newIndex = items.findIndex((item) => item.id === over.id)
+      return arrayMove(items, oldIndex, newIndex)
+    })
+
+    // Update display_order in database
+    setIsReordering(true)
+    try {
+      const oldIndex = orderedMetrics.findIndex((item) => item.id === active.id)
+      const newIndex = orderedMetrics.findIndex((item) => item.id === over.id)
+      const reorderedMetrics = arrayMove(orderedMetrics, oldIndex, newIndex)
+
+      // Create update payload with new display_order values
+      const updates = reorderedMetrics.map((metric, index) => ({
+        id: metric.id,
+        display_order: index,
+      }))
+
+      const result = await reorderMetrics(updates, scorecardId)
+
+      if (!result.success) {
+        console.error('Failed to reorder metrics:', result.error)
+        // Revert optimistic update
+        setOrderedMetrics(metrics)
+      }
+    } catch (error) {
+      console.error('Error reordering metrics:', error)
+      // Revert optimistic update
+      setOrderedMetrics(metrics)
+    } finally {
+      setIsReordering(false)
+    }
+  }
+
   const handleBulkArchive = async () => {
     const selectedMetrics = getSelectedMetrics()
     if (selectedMetrics.length === 0) return
@@ -326,77 +401,95 @@ export function TableView({ metrics, onMetricClick, onNoteClick, onArchiveMetric
   return (
     <>
       <div className="bg-white rounded-lg shadow overflow-hidden w-full">
-        <div className="overflow-x-auto w-full">
-          <table className="w-full text-sm border-collapse">
-            <thead>
-              <tr className="border-b border-gray-200">
-                {/* Checkbox Column - Sticky */}
-                <th
-                  className="sticky left-0 bg-gray-50 px-3 py-3 text-center border-r border-gray-200"
-                  style={{ width: columnWidths.checkbox, minWidth: columnWidths.checkbox, zIndex: 20 }}
-                >
-                  <Checkbox
-                    checked={isAllSelected ? true : isSomeSelected ? 'indeterminate' : false}
-                    onCheckedChange={toggleSelectAll}
-                  />
-                </th>
+        <div className="overflow-x-auto w-full" suppressHydrationWarning>
+          <DndContext
+            sensors={sensors}
+            collisionDetection={closestCenter}
+            onDragEnd={handleDragEnd}
+          >
+            <table className="w-full text-sm border-collapse">
+              <thead>
+                <tr className="border-b border-gray-200">
+                  {/* Drag Handle Column - Sticky */}
+                  <th
+                    className="sticky left-0 bg-gray-50 px-2 py-3 text-center border-r border-gray-200"
+                    style={{ width: columnWidths.dragHandle, minWidth: columnWidths.dragHandle, zIndex: 20 }}
+                  >
+                    <GripVertical className="size-4 mx-auto text-gray-400" />
+                  </th>
 
-                {/* Title Column - Sticky */}
-                <th
-                  className="sticky bg-gray-50 px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase border-r border-gray-200 relative"
-                  style={{
-                    width: columnWidths.title,
-                    minWidth: columnWidths.title,
-                    left: columnWidths.checkbox,
-                    zIndex: 20,
-                  }}
-                >
-                  Title
-                  <ColumnResizeHandle
-                    columnKey="title"
-                    onResize={handleColumnResize}
-                    minWidth={120}
-                    maxWidth={400}
-                  />
-                </th>
+                  {/* Checkbox Column - Sticky */}
+                  <th
+                    className="sticky bg-gray-50 px-3 py-3 text-center border-r border-gray-200"
+                    style={{
+                      width: columnWidths.checkbox,
+                      minWidth: columnWidths.checkbox,
+                      left: columnWidths.dragHandle,
+                      zIndex: 20,
+                    }}
+                  >
+                    <Checkbox
+                      checked={isAllSelected ? true : isSomeSelected ? 'indeterminate' : false}
+                      onCheckedChange={toggleSelectAll}
+                    />
+                  </th>
 
-                {/* Goal Column - Sticky */}
-                <th
-                  className="sticky bg-gray-50 px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase border-r border-gray-200 relative"
-                  style={{
-                    width: columnWidths.goal,
-                    minWidth: columnWidths.goal,
-                    left: columnWidths.checkbox + columnWidths.title,
-                    zIndex: 20,
-                  }}
-                >
-                  Goal
-                  <ColumnResizeHandle
-                    columnKey="goal"
-                    onResize={handleColumnResize}
-                    minWidth={100}
-                    maxWidth={200}
-                  />
-                </th>
+                  {/* Title Column - Sticky */}
+                  <th
+                    className="sticky bg-gray-50 px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase border-r border-gray-200 relative"
+                    style={{
+                      width: columnWidths.title,
+                      minWidth: columnWidths.title,
+                      left: columnWidths.dragHandle + columnWidths.checkbox,
+                      zIndex: 20,
+                    }}
+                  >
+                    Title
+                    <ColumnResizeHandle
+                      columnKey="title"
+                      onResize={handleColumnResize}
+                      minWidth={120}
+                      maxWidth={400}
+                    />
+                  </th>
 
-                {/* Average Column - Sticky */}
-                <th
-                  className="sticky bg-gray-50 px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase border-r border-gray-200 relative"
-                  style={{
-                    width: columnWidths.average,
-                    minWidth: columnWidths.average,
-                    left: columnWidths.checkbox + columnWidths.title + columnWidths.goal,
-                    zIndex: 20,
-                  }}
-                >
-                  Average
-                  <ColumnResizeHandle
-                    columnKey="average"
-                    onResize={handleColumnResize}
-                    minWidth={100}
-                    maxWidth={200}
-                  />
-                </th>
+                  {/* Goal Column - Sticky */}
+                  <th
+                    className="sticky bg-gray-50 px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase border-r border-gray-200 relative"
+                    style={{
+                      width: columnWidths.goal,
+                      minWidth: columnWidths.goal,
+                      left: columnWidths.dragHandle + columnWidths.checkbox + columnWidths.title,
+                      zIndex: 20,
+                    }}
+                  >
+                    Goal
+                    <ColumnResizeHandle
+                      columnKey="goal"
+                      onResize={handleColumnResize}
+                      minWidth={100}
+                      maxWidth={200}
+                    />
+                  </th>
+
+                  {/* Average Column - Sticky */}
+                  <th
+                    className="sticky bg-gray-50 px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase border-r border-gray-200 relative"
+                    style={{
+                      width: columnWidths.average,
+                      minWidth: columnWidths.average,
+                      left: columnWidths.dragHandle + columnWidths.checkbox + columnWidths.title + columnWidths.goal,
+                      zIndex: 20,
+                    }}
+                  >
+                    Average
+                    <ColumnResizeHandle
+                      columnKey="average"
+                      onResize={handleColumnResize}
+                      minWidth={100}
+                      maxWidth={200}
+                    />
+                  </th>
 
                 {/* Period Columns - Scrollable */}
                 {displayPeriods.map((periodStart, idx) => {
@@ -456,145 +549,34 @@ export function TableView({ metrics, onMetricClick, onNoteClick, onArchiveMetric
               </tr>
             </thead>
             <tbody>
-              {optimisticMetrics.map((metric) => {
-                const avg = getAverage(metric.entries)
-
-                // Create a map of period_start to entry for quick lookup
-                const entryMap = new Map(metric.entries.map((e) => [e.period_start, e]))
-
-                return (
-                  <tr key={metric.id} className="border-b border-gray-200 hover:bg-gray-50 h-[52px]">
-                    {/* Checkbox Cell - Sticky */}
-                    <td
-                      className="sticky left-0 bg-white px-3 py-3 text-center border-r border-gray-200 hover:bg-gray-50"
-                      style={{ width: columnWidths.checkbox, minWidth: columnWidths.checkbox, zIndex: 10 }}
-                    >
-                      <Checkbox
-                        checked={selectedMetricIds.has(metric.id)}
-                        onCheckedChange={() => toggleMetricSelection(metric.id)}
-                      />
-                    </td>
-
-                    {/* Title Cell - Sticky */}
-                    <td
-                      className="sticky bg-white px-4 py-3 border-r border-gray-200 hover:bg-gray-50"
-                      style={{
-                        width: columnWidths.title,
-                        minWidth: columnWidths.title,
-                        left: columnWidths.checkbox,
-                        zIndex: 10,
-                      }}
-                    >
-                      <div className="flex items-center gap-2">
-                        <Avatar className="w-6 h-6 flex-shrink-0">
-                          {metric.owner?.avatar_url && (
-                            <AvatarImage
-                              src={metric.owner.avatar_url}
-                              alt={metric.owner.full_name || "User"}
-                            />
-                          )}
-                          <AvatarFallback className="text-xs">
-                            {getInitials(metric.owner?.full_name || null)}
-                          </AvatarFallback>
-                        </Avatar>
-                        <span className="font-medium text-gray-900 truncate cursor-pointer" onClick={() => onMetricClick(metric)}>{metric.name}</span>
-                        <button
-                          onClick={(e) => handleEditMetricClick(e, metric)}
-                          className="ml-auto p-1 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded transition-colors flex-shrink-0"
-                          title="Edit metric"
-                        >
-                          <Pencil className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    </td>
-
-                    {/* Goal Cell - Sticky */}
-                    <td
-                      className="sticky bg-white px-4 py-3 text-center border-r border-gray-200 text-gray-700 hover:bg-gray-50"
-                      style={{
-                        width: columnWidths.goal,
-                        minWidth: columnWidths.goal,
-                        left: columnWidths.checkbox + columnWidths.title,
-                        zIndex: 10,
-                      }}
-                    >
-                      {formatGoal(metric)}
-                    </td>
-
-                    {/* Average Cell - Sticky */}
-                    <td
-                      className="sticky bg-white px-4 py-3 text-center border-r border-gray-200 font-medium text-gray-900 hover:bg-gray-50"
-                      style={{
-                        width: columnWidths.average,
-                        minWidth: columnWidths.average,
-                        left: columnWidths.checkbox + columnWidths.title + columnWidths.goal,
-                        zIndex: 10,
-                      }}
-                    >
-                      {avg > 0 ? formatValue(avg, metric.unit) : '-'}
-                    </td>
-
-                    {/* Period Cells - Scrollable */}
-                    {displayPeriods.map((periodStart, idx) => {
-                      const entry = entryMap.get(periodStart)
-                      const isEditing =
-                        editingCell?.metricId === metric.id &&
-                        editingCell?.periodStart === periodStart
-
-                      // Determine status and classes
-                      const status = entry ? getStatusColor(entry.value, metric) : 'red'
-                      const classes = entry ? getStatusClasses(status) : { bg: 'bg-gray-50', text: 'text-gray-400' }
-
-                      return (
-                        <td
-                          key={idx}
-                          className={`px-0 py-0 text-center border-r border-gray-200 ${classes.bg} ${classes.text} font-medium relative cursor-pointer overflow-hidden`}
-                          style={{ width: columnWidths.period, minWidth: columnWidths.period }}
-                          onClick={() => !isEditing && handleCellClick(metric, periodStart, entry || null)}
-                          onContextMenu={(e) => handleCellContextMenu(e, metric, entry || null)}
-                        >
-                          <div className="flex h-12 w-full items-center justify-center px-3">
-                            {isEditing ? (
-                              metric.scoring_mode === 'yes_no' ? (
-                                <div className="flex items-center justify-center gap-2">
-                                  <input
-                                    ref={inputRef}
-                                    type="checkbox"
-                                    checked={editValue === '1'}
-                                    onChange={(e) => setEditValue(e.target.checked ? '1' : '0')}
-                                    onBlur={() => handleSaveEdit(metric, periodStart)}
-                                    onKeyDown={(e) => handleKeyDown(e, metric, periodStart)}
-                                    className="h-4 w-4 rounded border border-gray-300 text-blue-600 focus:ring-2 focus:ring-blue-500"
-                                  />
-                                  <span className="text-sm">{editValue === '1' ? 'Yes' : 'No'}</span>
-                                </div>
-                              ) : (
-                                <input
-                                  ref={inputRef}
-                                  type="number"
-                                  step="any"
-                                  value={editValue}
-                                  onChange={(e) => setEditValue(e.target.value)}
-                                  onBlur={() => handleSaveEdit(metric, periodStart)}
-                                  onKeyDown={(e) => handleKeyDown(e, metric, periodStart)}
-                                  className="h-9 w-full rounded-md border border-blue-300 bg-blue-50 px-2 text-center text-sm font-medium text-gray-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                />
-                              )
-                            ) : (
-                              <div className="flex items-center justify-center gap-1">
-                                {entry ? formatValue(entry.value, metric.unit, metric) : '-'}
-                                {entry?.note && <MessageSquare className="h-3 w-3 text-blue-600" />}
-                              </div>
-                            )}
-                          </div>
-                        </td>
-                      )
-                    })}
-                  </tr>
-                )
-              })}
+              <SortableContext
+                items={optimisticMetrics.map((metric) => metric.id)}
+                strategy={verticalListSortingStrategy}
+              >
+                {optimisticMetrics.map((metric) => (
+                  <SortableMetricRow
+                    key={metric.id}
+                    metric={metric}
+                    displayPeriods={displayPeriods}
+                    editingCell={editingCell}
+                    editValue={editValue}
+                    selectedMetricIds={selectedMetricIds}
+                    columnWidths={columnWidths}
+                    onMetricClick={onMetricClick}
+                    onEditMetricClick={handleEditMetricClick}
+                    onToggleMetricSelection={toggleMetricSelection}
+                    onCellClick={handleCellClick}
+                    onCellContextMenu={handleCellContextMenu}
+                    onSaveEdit={handleSaveEdit}
+                    onKeyDown={handleKeyDown}
+                    onEditValueChange={setEditValue}
+                    inputRef={inputRef}
+                  />
+                ))}
+              </SortableContext>
             </tbody>
           </table>
+        </DndContext>
         </div>
       </div>
 
