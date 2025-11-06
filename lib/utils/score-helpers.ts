@@ -9,13 +9,13 @@ export function calculateScore(value: number, metric: Metric): number {
   switch (metric.scoring_mode) {
     case 'at_least': {
       // Higher is better - e.g., "revenue should be at least $10k"
-      if (!metric.target_value) return 0
+      if (metric.target_value === null || metric.target_value === undefined) return 0
       return (value / metric.target_value) * 100
     }
 
     case 'at_most': {
       // Lower is better - e.g., "expenses should be at most $1k"
-      if (!metric.target_value) return 0
+      if (metric.target_value === null || metric.target_value === undefined) return 0
 
       // If at or under target, that's 100% (goal achieved)
       if (value <= metric.target_value) {

@@ -14,7 +14,7 @@ import {
   getAverage,
   getInitials,
 } from '@/lib/utils/scorecard-ui-helpers'
-import { upsertMetricEntry } from '@/lib/actions/metric-entries'
+import { upsertMetricEntry, deleteMetricEntry } from '@/lib/actions/metric-entries'
 import { archiveMetric } from '@/lib/actions/metrics'
 import { getLastNPeriods, parseISODate } from '@/lib/utils/date-helpers'
 import { ContextMenu } from './context-menu'
@@ -144,15 +144,46 @@ export function TableView({ metrics, onMetricClick, onNoteClick, onArchiveMetric
   }
 
   const handleSaveEdit = (metric: MetricWithEntries, periodStart: string) => {
+    // Check if user wants to delete the entry (empty value)
+    if (editValue.trim() === '') {
+      // Find the existing entry to see if there's something to delete
+      const existingEntry = metric.entries.find(e => e.period_start === periodStart)
+
+      if (existingEntry) {
+        // Delete the entry
+        startTransition(async () => {
+          const result = await deleteMetricEntry(metric.id, periodStart, metric.scorecard_id)
+
+          if (!result.success) {
+            alert(result.error || 'Failed to delete entry')
+          }
+
+          setEditingCell(null)
+        })
+      } else {
+        // Nothing to delete, just cancel
+        setEditingCell(null)
+      }
+      return
+    }
+
     const newValue = parseFloat(editValue)
     if (isNaN(newValue)) {
       setEditingCell(null)
       return
     }
 
+    // Find the existing entry to preserve its note
+    const existingEntry = metric.entries.find(e => e.period_start === periodStart)
+
     const formData = new FormData()
     formData.append('value', editValue)
     formData.append('period_start', periodStart)
+
+    // Preserve the existing note if there is one
+    if (existingEntry?.note) {
+      formData.append('note', existingEntry.note)
+    }
 
     startTransition(async () => {
       // Find the scorecard ID from the metric
@@ -369,7 +400,7 @@ export function TableView({ metrics, onMetricClick, onNoteClick, onArchiveMetric
                 const entryMap = new Map(metric.entries.map((e) => [e.period_start, e]))
 
                 return (
-                  <tr key={metric.id} className="border-b border-gray-200 hover:bg-gray-50">
+                  <tr key={metric.id} className="border-b border-gray-200 hover:bg-gray-50 h-[52px]">
                     {/* Checkbox Cell - Sticky */}
                     <td
                       className="sticky left-0 bg-white px-3 py-3 text-center border-r border-gray-200 hover:bg-gray-50"
@@ -446,46 +477,47 @@ export function TableView({ metrics, onMetricClick, onNoteClick, onArchiveMetric
                       return (
                         <td
                           key={idx}
-                          className={`px-3 py-3 text-center border-r border-gray-200 ${classes.bg} ${classes.text} font-medium relative cursor-pointer`}
-                          style={{ minWidth: columnWidths.period }}
+                          className={`px-0 py-0 text-center border-r border-gray-200 ${classes.bg} ${classes.text} font-medium relative cursor-pointer overflow-hidden`}
+                          style={{ width: columnWidths.period, minWidth: columnWidths.period }}
                           onClick={() => !isEditing && handleCellClick(metric, periodStart, entry || null)}
                           onContextMenu={(e) => handleCellContextMenu(e, metric, entry || null)}
                         >
-                          {isEditing ? (
-                            metric.scoring_mode === 'yes_no' ? (
-                              <div className="flex items-center justify-center gap-2">
+                          <div className="flex h-12 w-full items-center justify-center px-3">
+                            {isEditing ? (
+                              metric.scoring_mode === 'yes_no' ? (
+                                <div className="flex items-center justify-center gap-2">
+                                  <input
+                                    ref={inputRef}
+                                    type="checkbox"
+                                    checked={editValue === '1'}
+                                    onChange={(e) => setEditValue(e.target.checked ? '1' : '0')}
+                                    onBlur={() => handleSaveEdit(metric, periodStart)}
+                                    onKeyDown={(e) => handleKeyDown(e, metric, periodStart)}
+                                    disabled={isPending}
+                                    className="h-4 w-4 rounded border border-gray-300 text-blue-600 focus:ring-2 focus:ring-blue-500"
+                                  />
+                                  <span className="text-sm">{editValue === '1' ? 'Yes' : 'No'}</span>
+                                </div>
+                              ) : (
                                 <input
                                   ref={inputRef}
-                                  type="checkbox"
-                                  checked={editValue === '1'}
-                                  onChange={(e) => setEditValue(e.target.checked ? '1' : '0')}
+                                  type="number"
+                                  step="any"
+                                  value={editValue}
+                                  onChange={(e) => setEditValue(e.target.value)}
                                   onBlur={() => handleSaveEdit(metric, periodStart)}
                                   onKeyDown={(e) => handleKeyDown(e, metric, periodStart)}
                                   disabled={isPending}
-                                  className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500 focus:ring-2"
+                                  className="h-9 w-full rounded-md border border-blue-300 bg-blue-50 px-2 text-center text-sm font-medium text-gray-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
                                 />
-                                <span className="text-sm">{editValue === '1' ? 'Yes' : 'No'}</span>
-                              </div>
+                              )
                             ) : (
-                              <input
-                                ref={inputRef}
-                                type="number"
-                                step="any"
-                                value={editValue}
-                                onChange={(e) => setEditValue(e.target.value)}
-                                onBlur={() => handleSaveEdit(metric, periodStart)}
-                                onKeyDown={(e) => handleKeyDown(e, metric, periodStart)}
-                                disabled={isPending}
-                                className="w-full px-1 py-0.5 text-center border border-blue-500 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-gray-900"
-                                style={{ minWidth: '60px' }}
-                              />
-                            )
-                          ) : (
-                            <div className="flex items-center justify-center gap-1">
-                              {entry ? formatValue(entry.value, metric.unit, metric) : '-'}
-                              {entry?.note && <MessageSquare className="w-3 h-3 text-blue-600" />}
-                            </div>
-                          )}
+                              <div className="flex items-center justify-center gap-1">
+                                {entry ? formatValue(entry.value, metric.unit, metric) : '-'}
+                                {entry?.note && <MessageSquare className="h-3 w-3 text-blue-600" />}
+                              </div>
+                            )}
+                          </div>
                         </td>
                       )
                     })}

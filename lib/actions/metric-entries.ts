@@ -90,6 +90,43 @@ export async function upsertMetricEntry(
 }
 
 /**
+ * Delete a metric entry
+ */
+export async function deleteMetricEntry(
+  metricId: string,
+  periodStart: string,
+  scorecardId: string
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const { supabase } = await requireUser()
+
+    // Delete the metric entry
+    const { error: deleteError } = await supabase
+      .from('metric_entries')
+      .delete()
+      .eq('metric_id', metricId)
+      .eq('period_start', periodStart)
+
+    if (deleteError) {
+      console.error('Error deleting metric entry:', deleteError)
+      return { success: false, error: 'Failed to delete entry' }
+    }
+
+    // Revalidate scorecard detail page
+    revalidatePath(`/scorecards/${scorecardId}`)
+
+    return { success: true }
+  } catch (error) {
+    if (error instanceof AuthError) {
+      return { success: false, error: 'Not authenticated' }
+    }
+
+    console.error('Error in deleteMetricEntry:', error)
+    return { success: false, error: 'An unexpected error occurred' }
+  }
+}
+
+/**
  * Update note for an existing metric entry
  */
 export async function updateEntryNote(
