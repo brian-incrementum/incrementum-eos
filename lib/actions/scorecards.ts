@@ -4,6 +4,7 @@ import { revalidatePath } from 'next/cache'
 
 import { AuthError, requireUser } from '@/lib/auth/session'
 import { loadScorecardListings } from '@/lib/loaders/scorecard-listings'
+import { loadArchivedMetrics } from '@/lib/loaders/scorecard'
 import type { ScorecardTable, ScorecardWithDetails } from '@/lib/types/scorecards'
 import { canCreateRoleScorecardFor, canCreateTeamScorecard, isSystemAdmin } from '@/lib/auth/permissions'
 
@@ -380,5 +381,24 @@ export async function deleteScorecard(scorecardId: string): Promise<{
 
     console.error('Unexpected error in deleteScorecard:', error)
     return { success: false, error: 'An unexpected error occurred' }
+  }
+}
+
+/**
+ * Load archived metrics for a scorecard on-demand
+ * This is called separately to avoid blocking initial page render
+ */
+export async function getArchivedMetrics(scorecardId: string) {
+  try {
+    const { supabase } = await requireUser()
+    const metrics = await loadArchivedMetrics({ supabase, scorecardId })
+    return { data: metrics, error: null }
+  } catch (error) {
+    if (error instanceof AuthError) {
+      return { data: [], error: 'Not authenticated' }
+    }
+
+    console.error('Unexpected error in getArchivedMetrics:', error)
+    return { data: [], error: 'An unexpected error occurred' }
   }
 }

@@ -5,6 +5,10 @@ import { isSystemAdmin } from '@/lib/auth/permissions'
 import { loadScorecardAggregate } from '@/lib/loaders/scorecard'
 import { ScorecardView } from './components/scorecard-view'
 
+// OPTIMIZATION: Cache page for 60 seconds (ISR)
+// Subsequent loads within 60s will be near-instant
+export const revalidate = 60
+
 export default async function ScorecardDetailPage({
   params,
 }: {
@@ -12,11 +16,16 @@ export default async function ScorecardDetailPage({
 }) {
   const { id } = await params
   const { supabase, user } = await requireUser({ redirectTo: '/login' })
-  const { data, error } = await loadScorecardAggregate({
-    supabase,
-    scorecardId: id,
-    userId: user.id,
-  })
+
+  // OPTIMIZATION: Run data loading and permission check in parallel
+  const [{ data, error }, isAdmin] = await Promise.all([
+    loadScorecardAggregate({
+      supabase,
+      scorecardId: id,
+      userId: user.id,
+    }),
+    isSystemAdmin(user.id, supabase),
+  ])
 
   if (error || !data) {
     return (
@@ -35,7 +44,6 @@ export default async function ScorecardDetailPage({
   }
 
   const { scorecard, metrics, archivedMetrics = [], employees } = data
-  const isAdmin = await isSystemAdmin(user.id, supabase)
 
   return (
     <ScorecardView

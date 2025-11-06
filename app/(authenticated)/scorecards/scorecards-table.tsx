@@ -45,6 +45,7 @@ export function ScorecardsTable({ scorecards, emptyMessage = 'No scorecards foun
                   <Link
                     href={`/scorecards/${scorecard.id}`}
                     className="font-medium text-blue-600 hover:text-blue-800 hover:underline"
+                    prefetch={true}
                   >
                     {scorecard.name}
                   </Link>

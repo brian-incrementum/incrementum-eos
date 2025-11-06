@@ -58,6 +58,7 @@ export async function TeamScorecards({ teamId, userRole }: TeamScorecardsProps) 
                 key={scorecard.id}
                 href={`/scorecards/${scorecard.id}`}
                 className="block"
+                prefetch={true}
               >
                 <div className="rounded-lg border p-4 transition-colors hover:bg-accent">
                   <div className="flex items-start justify-between">
