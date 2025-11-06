@@ -70,6 +70,42 @@ export async function getUserTeamRole(
 }
 
 /**
+ * Determine whether `managerUserId` manages the user identified by `reportUserId`.
+ * Comparison is performed via company email addresses stored on the `profiles` and `employees` tables.
+ */
+export async function isUserManager(
+  managerUserId: string,
+  reportUserId: string,
+  supabase?: Supabase
+): Promise<boolean> {
+  const client = await resolveClient(supabase)
+
+  const [{ data: managerProfile }, { data: reportProfile }] = await Promise.all([
+    client.from('profiles').select('email').eq('id', managerUserId).single(),
+    client.from('profiles').select('email').eq('id', reportUserId).single(),
+  ])
+
+  if (!managerProfile?.email || !reportProfile?.email) {
+    return false
+  }
+
+  const managerEmail = managerProfile.email.toLowerCase()
+  const reportEmail = reportProfile.email.toLowerCase()
+
+  const { data: employeeRecord } = await client
+    .from('employees')
+    .select('manager_email')
+    .eq('company_email', reportEmail)
+    .single()
+
+  if (!employeeRecord?.manager_email) {
+    return false
+  }
+
+  return employeeRecord.manager_email.toLowerCase() === managerEmail
+}
+
+/**
  * Check if user has required team permission level
  * System admins automatically have all permissions
  */

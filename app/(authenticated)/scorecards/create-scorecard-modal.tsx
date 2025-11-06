@@ -107,7 +107,7 @@ export function CreateScorecardModal({
               .eq('role', TEAM_ROLES.OWNER)
               .limit(1)
 
-            setCanCreateForTeam(ownedTeams && ownedTeams.length > 0)
+            setCanCreateForTeam((ownedTeams?.length ?? 0) > 0)
           }
         }
       }

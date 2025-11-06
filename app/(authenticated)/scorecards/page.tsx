@@ -18,7 +18,7 @@ export default async function ScorecardsPage() {
     .eq('role', TEAM_ROLES.OWNER)
     .limit(1)
 
-  const canCreate = isAdmin || (ownedTeams && ownedTeams.length > 0)
+  const canCreate = isAdmin || ((ownedTeams?.length ?? 0) > 0)
 
   // Fetch organized scorecards
   const { yourScorecards, companyScorecards, error } = await loadScorecardListings({

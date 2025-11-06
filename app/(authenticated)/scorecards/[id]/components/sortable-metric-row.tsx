@@ -1,6 +1,6 @@
 'use client'
 
-import { useRef, type ReactNode } from 'react'
+import type { ReactNode, RefObject } from 'react'
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { GripVertical, MessageSquare, Pencil } from 'lucide-react'
@@ -53,7 +53,7 @@ interface SortableMetricRowProps {
   onSaveEdit: (metric: MetricWithEntries, periodStart: string) => void
   onKeyDown: (e: React.KeyboardEvent, metric: MetricWithEntries, periodStart: string) => void
   onEditValueChange: (value: string) => void
-  inputRef: React.RefObject<HTMLInputElement>
+  inputRef: RefObject<HTMLInputElement | null>
 }
 
 export function SortableMetricRow({
