@@ -19,11 +19,13 @@ import { TEAM_ROLES } from '@/lib/auth/constants'
 type Team = Tables<'teams'>
 type TeamMember = Tables<'team_members'>
 type Profile = Tables<'profiles'>
+type Scorecard = Tables<'scorecards'>
 
 interface TeamWithMembers extends Team {
   members: (TeamMember & { profile: Profile })[]
   member_count: number
   scorecard_count: number
+  scorecards: Scorecard[]
 }
 
 /**
@@ -64,21 +66,12 @@ export async function getUserTeams(): Promise<{
       return { data: null, error: teamsError.message }
     }
 
-    const [memberRowsResult, scorecardRowsResult] = await Promise.all([
+    // Fetch member counts and scorecard counts WITHOUT profile joins for speed
+    const [memberCountsResult, scorecardRowsResult] = await Promise.all([
       supabase
         .from('team_members')
-        .select(
-          `
-            team_id,
-            id,
-            role,
-            created_at,
-            user_id,
-            profile:profiles(*)
-          `
-        )
-        .in('team_id', teamIds)
-        .order('created_at', { ascending: true }),
+        .select('team_id')
+        .in('team_id', teamIds),
       supabase
         .from('scorecards')
         .select('id, team_id')
@@ -86,19 +79,18 @@ export async function getUserTeams(): Promise<{
         .eq('is_active', true),
     ])
 
-    if (memberRowsResult.error) {
-      console.error('Error fetching team members', memberRowsResult.error)
+    if (memberCountsResult.error) {
+      console.error('Error fetching team member counts', memberCountsResult.error)
     }
 
     if (scorecardRowsResult.error) {
       console.error('Error fetching team scorecards', scorecardRowsResult.error)
     }
 
-    const membersByTeam = new Map<string, TeamWithMembers['members']>()
-    memberRowsResult.data?.forEach((row) => {
-      const members = membersByTeam.get(row.team_id) ?? []
-      members.push(row as TeamMember & { profile: Profile })
-      membersByTeam.set(row.team_id, members)
+    // Count members by team (no profile data needed for list view)
+    const memberCountByTeam = new Map<string, number>()
+    memberCountsResult.data?.forEach((row) => {
+      memberCountByTeam.set(row.team_id, (memberCountByTeam.get(row.team_id) || 0) + 1)
     })
 
     const scorecardCountByTeam = new Map<string, number>()
@@ -111,12 +103,12 @@ export async function getUserTeams(): Promise<{
     })
 
     const teamsWithAggregates = (teams || []).map((team) => {
-      const members = membersByTeam.get(team.id) ?? []
       return {
         ...team,
-        members,
-        member_count: members.length,
+        members: [], // Empty for list view - profiles loaded on demand
+        member_count: memberCountByTeam.get(team.id) || 0,
         scorecard_count: scorecardCountByTeam.get(team.id) || 0,
+        scorecards: [], // Empty for list view
       }
     })
 
@@ -164,22 +156,12 @@ export async function getAllTeams(): Promise<{
 
     const teamIds = teams.map((team) => team.id)
 
-    // Fetch team members and scorecards
-    const [memberRowsResult, scorecardRowsResult] = await Promise.all([
+    // Fetch member counts and scorecard counts WITHOUT profile joins for speed
+    const [memberCountsResult, scorecardRowsResult] = await Promise.all([
       supabase
         .from('team_members')
-        .select(
-          `
-            team_id,
-            id,
-            role,
-            created_at,
-            user_id,
-            profile:profiles(*)
-          `
-        )
-        .in('team_id', teamIds)
-        .order('created_at', { ascending: true }),
+        .select('team_id')
+        .in('team_id', teamIds),
       supabase
         .from('scorecards')
         .select('id, team_id')
@@ -187,20 +169,18 @@ export async function getAllTeams(): Promise<{
         .eq('is_active', true),
     ])
 
-    if (memberRowsResult.error) {
-      console.error('Error fetching team members', memberRowsResult.error)
+    if (memberCountsResult.error) {
+      console.error('Error fetching team member counts', memberCountsResult.error)
     }
 
     if (scorecardRowsResult.error) {
       console.error('Error fetching team scorecards', scorecardRowsResult.error)
     }
 
-    // Group members by team
-    const membersByTeam = new Map<string, TeamWithMembers['members']>()
-    memberRowsResult.data?.forEach((row) => {
-      const members = membersByTeam.get(row.team_id) ?? []
-      members.push(row as TeamMember & { profile: Profile })
-      membersByTeam.set(row.team_id, members)
+    // Count members by team (no profile data needed for list view)
+    const memberCountByTeam = new Map<string, number>()
+    memberCountsResult.data?.forEach((row) => {
+      memberCountByTeam.set(row.team_id, (memberCountByTeam.get(row.team_id) || 0) + 1)
     })
 
     // Count scorecards by team
@@ -215,12 +195,12 @@ export async function getAllTeams(): Promise<{
 
     // Add member and scorecard counts to teams
     const teamsWithAggregates = teams.map((team) => {
-      const members = membersByTeam.get(team.id) ?? []
       return {
         ...team,
-        members,
-        member_count: members.length,
+        members: [], // Empty for list view - profiles loaded on demand
+        member_count: memberCountByTeam.get(team.id) || 0,
         scorecard_count: scorecardCountByTeam.get(team.id) || 0,
+        scorecards: [], // Empty for list view
       }
     })
 
@@ -269,7 +249,7 @@ export async function getTeamDetails(teamId: string): Promise<{
       return { data: null, error: teamError.message }
     }
 
-    // Fetch members with profiles
+    // Fetch members with profiles and full scorecard data
     const [membersResult, scorecardsResult] = await Promise.all([
       supabase
         .from('team_members')
@@ -278,9 +258,10 @@ export async function getTeamDetails(teamId: string): Promise<{
         .order('created_at'),
       supabase
         .from('scorecards')
-        .select('id')
+        .select('*')
         .eq('team_id', teamId)
-        .eq('is_active', true),
+        .eq('is_active', true)
+        .order('created_at', { ascending: false }),
     ])
 
     if (membersResult.error) {
@@ -297,6 +278,7 @@ export async function getTeamDetails(teamId: string): Promise<{
         members: membersResult.data || [],
         member_count: membersResult.data?.length ?? 0,
         scorecard_count: scorecardsResult.data?.length ?? 0,
+        scorecards: scorecardsResult.data || [],
       } as TeamWithMembers,
       error: null,
     }

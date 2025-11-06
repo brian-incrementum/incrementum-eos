@@ -1,5 +1,4 @@
 import Link from "next/link"
-import { createClient } from "@/lib/supabase/server"
 import { Plus, ClipboardList } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
@@ -11,23 +10,17 @@ import {
 } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { TEAM_ROLES, type TeamRole } from "@/lib/auth/constants"
+import type { Tables } from "@/lib/types/database.types"
+
+type Scorecard = Tables<'scorecards'>
 
 interface TeamScorecardsProps {
   teamId: string
   userRole: TeamRole | null
+  scorecards: Scorecard[]
 }
 
-export async function TeamScorecards({ teamId, userRole }: TeamScorecardsProps) {
-  const supabase = await createClient()
-
-  // Fetch team scorecards
-  const { data: scorecards } = await supabase
-    .from("scorecards")
-    .select("*")
-    .eq("team_id", teamId)
-    .eq("is_active", true)
-    .order("created_at", { ascending: false })
-
+export function TeamScorecards({ teamId, userRole, scorecards }: TeamScorecardsProps) {
   const canCreate = userRole === TEAM_ROLES.OWNER
 
   return (

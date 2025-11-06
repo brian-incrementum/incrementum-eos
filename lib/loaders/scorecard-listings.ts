@@ -50,12 +50,12 @@ export async function loadScorecardListings({
     { data: metricRows, error: metricsError },
     { data: userTeamMemberships, error: userTeamMembershipsError },
   ] = await Promise.all([
+    // Removed profile join for speed - owner names can be loaded separately if needed
     supabase
       .from('scorecards')
       .select(
         `
           *,
-          owner:profiles!scorecards_owner_user_id_fkey(*),
           team:teams(*),
           role:roles(*)
         `
@@ -147,7 +147,7 @@ export async function loadScorecardListings({
   scorecards.forEach((scorecard) => {
     const enhanced: ScorecardWithDetails = {
       ...scorecard,
-      owner: scorecard.owner ?? null,
+      owner: null, // Removed for performance - can be loaded separately if needed
       team: scorecard.team ?? null,
       role: scorecard.role ?? null,
       metric_count: metricCountByScorecard.get(scorecard.id) ?? 0,

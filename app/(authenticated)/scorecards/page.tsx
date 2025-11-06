@@ -5,6 +5,9 @@ import { ScorecardsTable } from './scorecards-table'
 import { ScorecardsHeader } from './scorecards-header'
 import { TEAM_ROLES } from '@/lib/auth/constants'
 
+// Enable ISR: Cache this page for 60 seconds for faster subsequent loads
+export const revalidate = 60
+
 export default async function ScorecardsPage() {
   const { supabase, user } = await requireUser({ redirectTo: '/login' })
 

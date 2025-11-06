@@ -17,8 +17,12 @@ export default async function TeamDetailPage({
   const { id } = await params
   const { user } = await requireUser({ redirectTo: "/login" })
 
-  // Fetch team details
-  const { data: team, error } = await getTeamDetails(id)
+  // Fetch all data in parallel for faster page load
+  const [{ data: team, error }, userRole, isAdmin] = await Promise.all([
+    getTeamDetails(id),
+    getUserTeamRole(id, user.id),
+    isSystemAdmin(user.id),
+  ])
 
   if (error || !team) {
     return (
@@ -40,10 +44,6 @@ export default async function TeamDetailPage({
       </div>
     )
   }
-
-  // Get current user's role and admin status
-  const userRole = await getUserTeamRole(id, user.id)
-  const isAdmin = await isSystemAdmin(user.id)
 
   return (
     <div className="space-y-6">
@@ -76,7 +76,11 @@ export default async function TeamDetailPage({
 
         {/* Right Column - Team Scorecards */}
         <div className="lg:col-span-2">
-          <TeamScorecards teamId={team.id} userRole={userRole} />
+          <TeamScorecards
+            teamId={team.id}
+            userRole={userRole}
+            scorecards={team.scorecards}
+          />
         </div>
       </div>
     </div>

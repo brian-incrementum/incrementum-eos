@@ -5,6 +5,9 @@ import { TeamCard } from "./team-card"
 import { CreateTeamButton } from "./create-team-button"
 import { Users, Shield } from "lucide-react"
 
+// Enable ISR: Cache this page for 60 seconds for faster subsequent loads
+export const revalidate = 60
+
 export default async function TeamsPage() {
   const { user } = await requireUser({ redirectTo: "/login" })
 
