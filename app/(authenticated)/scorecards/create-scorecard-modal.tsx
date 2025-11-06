@@ -97,6 +97,18 @@ export function CreateScorecardModal({
               setOwnerId(user.id)
             }
           }
+        } else {
+          // If no team param, check if non-admin owns any teams
+          if (!isAdmin) {
+            const { data: ownedTeams } = await supabase
+              .from('team_members')
+              .select('team_id')
+              .eq('user_id', user.id)
+              .eq('role', TEAM_ROLES.OWNER)
+              .limit(1)
+
+            setCanCreateForTeam(ownedTeams && ownedTeams.length > 0)
+          }
         }
       }
     }
@@ -151,7 +163,13 @@ export function CreateScorecardModal({
           setRoles(rolesResult.data)
         }
         if (employeesResult.data) {
-          setEmployees(employeesResult.data)
+          // Simplified: Non-admins can only create scorecards for themselves
+          let filteredEmployees = employeesResult.data
+          if (!isAdmin && currentUserId) {
+            // Non-admins can only select themselves
+            filteredEmployees = employeesResult.data.filter(emp => emp.id === currentUserId)
+          }
+          setEmployees(filteredEmployees)
         }
         setIsLoading(false)
       }
@@ -267,8 +285,8 @@ export function CreateScorecardModal({
         </DialogHeader>
         <form onSubmit={handleSubmit}>
           <div className="grid gap-6 py-4">
-            {/* Type Selection - Only show if admin */}
-            {isAdmin && (
+            {/* Type Selection - Show to admins and managers who can create scorecards */}
+            {(isAdmin || canCreateForTeam) && (
               <div className="grid gap-3">
                 <label className="text-sm font-medium">
                   Scorecard Type <span className="text-red-500">*</span>

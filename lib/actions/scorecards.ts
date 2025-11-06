@@ -234,6 +234,19 @@ export async function createScorecard(formData: FormData): Promise<{
       // In production, you might want to delete the scorecard or handle this differently
     }
 
+    // If a manager created this scorecard for someone else (role scorecard), add the manager as an editor
+    if (type === 'role' && user.id !== ownerUserId && !isAdmin) {
+      const { error: managerMemberError } = await supabase.from('scorecard_members').insert({
+        scorecard_id: scorecard.id,
+        user_id: user.id,
+        role: 'editor',
+      })
+
+      if (managerMemberError) {
+        console.error('Error adding manager as scorecard editor:', managerMemberError)
+      }
+    }
+
     // Revalidate the scorecards page
     revalidatePath('/scorecards')
 
