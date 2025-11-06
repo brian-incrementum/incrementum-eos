@@ -22,6 +22,7 @@ import { ColumnResizeHandle } from './column-resize-handle'
 import { EditMetricModal } from '../edit-metric-modal'
 import { Checkbox } from '@/components/ui/checkbox'
 import { BulkActionBar } from './bulk-action-bar'
+import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar'
 
 type Metric = Tables<'metrics'>
 type MetricEntry = Tables<'metric_entries'>
@@ -485,9 +486,17 @@ export function TableView({ metrics, onMetricClick, onNoteClick, onArchiveMetric
                       }}
                     >
                       <div className="flex items-center gap-2">
-                        <div className="flex items-center justify-center w-6 h-6 rounded-full bg-gray-100 text-xs font-medium flex-shrink-0">
-                          {getInitials(metric.owner?.full_name || null)}
-                        </div>
+                        <Avatar className="w-6 h-6 flex-shrink-0">
+                          {metric.owner?.avatar_url && (
+                            <AvatarImage
+                              src={metric.owner.avatar_url}
+                              alt={metric.owner.full_name || "User"}
+                            />
+                          )}
+                          <AvatarFallback className="text-xs">
+                            {getInitials(metric.owner?.full_name || null)}
+                          </AvatarFallback>
+                        </Avatar>
                         <span className="font-medium text-gray-900 truncate cursor-pointer" onClick={() => onMetricClick(metric)}>{metric.name}</span>
                         <button
                           onClick={(e) => handleEditMetricClick(e, metric)}

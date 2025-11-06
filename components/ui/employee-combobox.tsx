@@ -71,41 +71,43 @@ export function EmployeeCombobox({
           <CommandList>
             <CommandEmpty>{emptyText}</CommandEmpty>
             <CommandGroup>
-              <CommandItem
-                key="unassigned"
-                value="unassigned"
-                onSelect={() => {
-                  onValueChange('')
-                  setOpen(false)
-                }}
-              >
-                <Check
-                  className={cn(
-                    'mr-2 h-4 w-4',
-                    value === '' ? 'opacity-100' : 'opacity-0'
-                  )}
-                />
-                Unassigned
-              </CommandItem>
-              {employees.map((employee) => (
+              {[
                 <CommandItem
-                  key={employee.id}
-                  value={getDisplayName(employee)}
+                  key="unassigned"
+                  value="unassigned"
                   onSelect={() => {
-                    // Store profile_id as the value
-                    onValueChange(employee.profile_id)
+                    onValueChange('')
                     setOpen(false)
                   }}
                 >
                   <Check
                     className={cn(
                       'mr-2 h-4 w-4',
-                      employee.profile_id === value ? 'opacity-100' : 'opacity-0'
+                      value === '' ? 'opacity-100' : 'opacity-0'
                     )}
                   />
-                  {getDisplayName(employee)}
-                </CommandItem>
-              ))}
+                  Unassigned
+                </CommandItem>,
+                ...employees.map((employee) => (
+                  <CommandItem
+                    key={employee.id}
+                    value={getDisplayName(employee)}
+                    onSelect={() => {
+                      // Store profile_id as the value
+                      onValueChange(employee.profile_id)
+                      setOpen(false)
+                    }}
+                  >
+                    <Check
+                      className={cn(
+                        'mr-2 h-4 w-4',
+                        employee.profile_id === value ? 'opacity-100' : 'opacity-0'
+                      )}
+                    />
+                    {getDisplayName(employee)}
+                  </CommandItem>
+                ))
+              ]}
             </CommandGroup>
           </CommandList>
         </Command>
