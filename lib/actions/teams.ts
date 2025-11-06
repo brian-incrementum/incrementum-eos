@@ -134,7 +134,7 @@ export async function getUserTeams(): Promise<{
  * Get all teams (Admin only)
  */
 export async function getAllTeams(): Promise<{
-  data: Team[] | null
+  data: TeamWithMembers[] | null
   error: string | null
 }> {
   try {
@@ -158,7 +158,73 @@ export async function getAllTeams(): Promise<{
       return { data: null, error: teamsError.message }
     }
 
-    return { data: teams, error: null }
+    if (!teams || teams.length === 0) {
+      return { data: [], error: null }
+    }
+
+    const teamIds = teams.map((team) => team.id)
+
+    // Fetch team members and scorecards
+    const [memberRowsResult, scorecardRowsResult] = await Promise.all([
+      supabase
+        .from('team_members')
+        .select(
+          `
+            team_id,
+            id,
+            role,
+            created_at,
+            user_id,
+            profile:profiles(*)
+          `
+        )
+        .in('team_id', teamIds)
+        .order('created_at', { ascending: true }),
+      supabase
+        .from('scorecards')
+        .select('id, team_id')
+        .in('team_id', teamIds)
+        .eq('is_active', true),
+    ])
+
+    if (memberRowsResult.error) {
+      console.error('Error fetching team members', memberRowsResult.error)
+    }
+
+    if (scorecardRowsResult.error) {
+      console.error('Error fetching team scorecards', scorecardRowsResult.error)
+    }
+
+    // Group members by team
+    const membersByTeam = new Map<string, TeamWithMembers['members']>()
+    memberRowsResult.data?.forEach((row) => {
+      const members = membersByTeam.get(row.team_id) ?? []
+      members.push(row as TeamMember & { profile: Profile })
+      membersByTeam.set(row.team_id, members)
+    })
+
+    // Count scorecards by team
+    const scorecardCountByTeam = new Map<string, number>()
+    scorecardRowsResult.data?.forEach((row) => {
+      if (!row.team_id) {
+        return
+      }
+
+      scorecardCountByTeam.set(row.team_id, (scorecardCountByTeam.get(row.team_id) || 0) + 1)
+    })
+
+    // Add member and scorecard counts to teams
+    const teamsWithAggregates = teams.map((team) => {
+      const members = membersByTeam.get(team.id) ?? []
+      return {
+        ...team,
+        members,
+        member_count: members.length,
+        scorecard_count: scorecardCountByTeam.get(team.id) || 0,
+      }
+    })
+
+    return { data: teamsWithAggregates as TeamWithMembers[], error: null }
   } catch (error) {
     if (error instanceof AuthError) {
       return { data: null, error: 'Not authenticated' }

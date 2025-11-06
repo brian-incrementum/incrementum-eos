@@ -258,7 +258,24 @@ export async function removeTeamMember(
       return { success: false, error: error.message }
     }
 
+    // Clean up scorecard_members for team scorecards
+    const { data: teamScorecards } = await supabase
+      .from('scorecards')
+      .select('id')
+      .eq('team_id', teamId)
+      .eq('type', 'team')
+
+    if (teamScorecards && teamScorecards.length > 0) {
+      const scorecardIds = teamScorecards.map((s) => s.id)
+      await supabase
+        .from('scorecard_members')
+        .delete()
+        .in('scorecard_id', scorecardIds)
+        .eq('user_id', userId)
+    }
+
     revalidatePath(`/teams/${teamId}`)
+    revalidatePath('/scorecards')
     return { success: true, error: null }
   } catch (error) {
     if (error instanceof AuthError) {
@@ -352,6 +369,69 @@ export async function transferTeamOwnership(
         .eq('user_id', currentOwner.user_id)
 
       return { success: false, error: promoteError.message }
+    }
+
+    // Update team scorecards ownership
+    const { data: teamScorecards, error: scorecardsFetchError } = await supabase
+      .from('scorecards')
+      .select('id')
+      .eq('team_id', teamId)
+      .eq('type', 'team')
+
+    if (scorecardsFetchError) {
+      console.error('Error fetching team scorecards:', scorecardsFetchError)
+      // Continue despite error - team ownership was already transferred
+    }
+
+    if (teamScorecards && teamScorecards.length > 0) {
+      // Update scorecards.owner_user_id to new owner
+      const { error: scorecardUpdateError } = await supabase
+        .from('scorecards')
+        .update({ owner_user_id: newOwnerId })
+        .eq('team_id', teamId)
+        .eq('type', 'team')
+
+      if (scorecardUpdateError) {
+        console.error('Error updating scorecard ownership:', scorecardUpdateError)
+        // Continue despite error - team ownership was already transferred
+      }
+
+      const scorecardIds = teamScorecards.map((s) => s.id)
+
+      // Update old owner to editor role in scorecard_members
+      const { error: oldOwnerUpdateError } = await supabase
+        .from('scorecard_members')
+        .update({ role: 'editor' })
+        .in('scorecard_id', scorecardIds)
+        .eq('user_id', currentOwner.user_id)
+
+      if (oldOwnerUpdateError) {
+        console.error('Error updating old owner role:', oldOwnerUpdateError)
+      }
+
+      // Ensure new owner has owner role in scorecard_members
+      const { error: newOwnerUpsertError } = await supabase
+        .from('scorecard_members')
+        .upsert(
+          scorecardIds.map((id) => ({
+            scorecard_id: id,
+            user_id: newOwnerId,
+            role: 'owner' as const,
+          })),
+          {
+            onConflict: 'scorecard_id,user_id',
+          }
+        )
+
+      if (newOwnerUpsertError) {
+        console.error('Error upserting new owner role:', newOwnerUpsertError)
+      }
+
+      // Revalidate scorecard pages
+      revalidatePath('/scorecards')
+      scorecardIds.forEach((id) => {
+        revalidatePath(`/scorecards/${id}`)
+      })
     }
 
     revalidatePath(`/teams/${teamId}`)
@@ -457,8 +537,25 @@ export async function leaveTeam(teamId: string): Promise<{
           return { success: false, error: removeError.message }
         }
 
+        // Clean up scorecard_members for team scorecards
+        const { data: teamScorecards } = await supabase
+          .from('scorecards')
+          .select('id')
+          .eq('team_id', teamId)
+          .eq('type', 'team')
+
+        if (teamScorecards && teamScorecards.length > 0) {
+          const scorecardIds = teamScorecards.map((s) => s.id)
+          await supabase
+            .from('scorecard_members')
+            .delete()
+            .in('scorecard_id', scorecardIds)
+            .eq('user_id', user.id)
+        }
+
         revalidatePath('/teams')
         revalidatePath(`/teams/${teamId}`)
+        revalidatePath('/scorecards')
         return { success: true, error: null }
       }
 
@@ -480,8 +577,25 @@ export async function leaveTeam(teamId: string): Promise<{
       return { success: false, error: error.message }
     }
 
+    // Clean up scorecard_members for team scorecards
+    const { data: teamScorecards } = await supabase
+      .from('scorecards')
+      .select('id')
+      .eq('team_id', teamId)
+      .eq('type', 'team')
+
+    if (teamScorecards && teamScorecards.length > 0) {
+      const scorecardIds = teamScorecards.map((s) => s.id)
+      await supabase
+        .from('scorecard_members')
+        .delete()
+        .in('scorecard_id', scorecardIds)
+        .eq('user_id', user.id)
+    }
+
     revalidatePath('/teams')
     revalidatePath(`/teams/${teamId}`)
+    revalidatePath('/scorecards')
     return { success: true, error: null }
   } catch (error) {
     if (error instanceof AuthError) {
