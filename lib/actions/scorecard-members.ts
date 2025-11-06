@@ -109,6 +109,44 @@ export async function getScorecardMembers(scorecardId: string): Promise<{
 }
 
 /**
+ * Get additional members who have been manually shared access to the scorecard
+ * This fetches from scorecard_members table regardless of scorecard type
+ * Used to show "Shared With" section separately from auto-synced team members
+ */
+export async function getAdditionalScorecardMembers(scorecardId: string): Promise<{
+  members: MemberWithProfile[] | null
+  error: string | null
+}> {
+  try {
+    const { supabase } = await requireUser()
+
+    // Always fetch from scorecard_members table
+    const { data: members, error: membersError } = await supabase
+      .from('scorecard_members')
+      .select(`
+        *,
+        profile:profiles(*)
+      `)
+      .eq('scorecard_id', scorecardId)
+      .order('created_at', { ascending: true })
+
+    if (membersError) {
+      console.error('Error fetching additional scorecard members:', membersError)
+      return { members: null, error: 'Failed to fetch shared members' }
+    }
+
+    return { members: members as MemberWithProfile[], error: null }
+  } catch (error) {
+    if (error instanceof AuthError) {
+      return { members: null, error: 'Not authenticated' }
+    }
+
+    console.error('Unexpected error in getAdditionalScorecardMembers:', error)
+    return { members: null, error: 'An unexpected error occurred' }
+  }
+}
+
+/**
  * Get count of metrics owned by a user in a scorecard
  */
 export async function getMemberMetricCount(
@@ -159,20 +197,6 @@ export async function addScorecardMember(
 }> {
   try {
     const { supabase } = await requireUser()
-
-    // Check if this is a team scorecard
-    const { data: scorecard } = await supabase
-      .from('scorecards')
-      .select('type, team_id')
-      .eq('id', scorecardId)
-      .single()
-
-    if (scorecard?.type === 'team' && scorecard.team_id) {
-      return {
-        success: false,
-        error: 'Cannot manually add members to team scorecards. Members are automatically synced from the team.'
-      }
-    }
 
     // Check if user is already a member
     const { data: existingMember } = await supabase
@@ -226,20 +250,6 @@ export async function removeScorecardMember(
 }> {
   try {
     const { supabase } = await requireUser()
-
-    // Check if this is a team scorecard
-    const { data: scorecard } = await supabase
-      .from('scorecards')
-      .select('type, team_id')
-      .eq('id', scorecardId)
-      .single()
-
-    if (scorecard?.type === 'team' && scorecard.team_id) {
-      return {
-        success: false,
-        error: 'Cannot manually remove members from team scorecards. Members are automatically synced from the team.'
-      }
-    }
 
     // Get the member to find user_id
     const { data: member } = await supabase
@@ -304,20 +314,6 @@ export async function updateMemberRole(
 }> {
   try {
     const { supabase } = await requireUser()
-
-    // Check if this is a team scorecard
-    const { data: scorecard } = await supabase
-      .from('scorecards')
-      .select('type, team_id')
-      .eq('id', scorecardId)
-      .single()
-
-    if (scorecard?.type === 'team' && scorecard.team_id) {
-      return {
-        success: false,
-        error: 'Cannot change member roles in team scorecards. Roles are automatically synced from the team.'
-      }
-    }
 
     // Update role
     const { error: updateError } = await supabase

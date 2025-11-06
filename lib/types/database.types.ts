@@ -499,36 +499,6 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      get_scorecard_aggregate: {
-        Args: {
-          p_scorecard_id: string
-          p_user_id: string
-        }
-        Returns: {
-          error: string | null
-          data: {
-            scorecard: Database["public"]["Tables"]["scorecards"]["Row"]
-            metrics: Array<
-              Database["public"]["Tables"]["metrics"]["Row"] & {
-                entries: Database["public"]["Tables"]["metric_entries"]["Row"][]
-                owner: Pick<
-                  Database["public"]["Tables"]["profiles"]["Row"],
-                  "id" | "email" | "full_name" | "avatar_url"
-                > | null
-              }
-            >
-            employees: Array<
-              Database["public"]["Tables"]["employees"]["Row"] & {
-                profile_id: string
-                profile: Pick<
-                  Database["public"]["Tables"]["profiles"]["Row"],
-                  "id" | "email" | "full_name" | "avatar_url"
-                >
-              }
-            >
-          } | null
-        }
-      }
       postgres_fdw_disconnect: { Args: { "": string }; Returns: boolean }
       postgres_fdw_disconnect_all: { Args: never; Returns: boolean }
       postgres_fdw_get_connections: {

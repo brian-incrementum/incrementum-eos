@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useTransition, useEffect } from 'react'
+import { useState, useTransition, useEffect, useMemo } from 'react'
 import { UserPlus, Trash2 } from 'lucide-react'
 import {
   Sheet,
@@ -13,6 +13,7 @@ import { EmployeeCombobox } from '@/components/ui/employee-combobox'
 import { updateScorecard } from '@/lib/actions/scorecards'
 import {
   getScorecardMembers,
+  getAdditionalScorecardMembers,
   addScorecardMember,
   removeScorecardMember,
   updateMemberRole,
@@ -44,6 +45,7 @@ export function EditScorecardSheet({
   const [isPending, startTransition] = useTransition()
   const [error, setError] = useState<string | null>(null)
   const [members, setMembers] = useState<MemberWithProfile[]>([])
+  const [sharedMembers, setSharedMembers] = useState<MemberWithProfile[]>([])
   const [selectedEmployeeId, setSelectedEmployeeId] = useState('')
   const [selectedRole, setSelectedRole] = useState<'editor' | 'viewer'>('editor')
   const [showDeleteDialog, setShowDeleteDialog] = useState(false)
@@ -57,15 +59,60 @@ export function EditScorecardSheet({
 
   const loadMembers = () => {
     startTransition(async () => {
-      const result = await getScorecardMembers(scorecard.id)
-      if (result.error) {
-        setError(result.error)
+      // For team scorecards, load both team members and shared members
+      if (scorecard.type === 'team' && scorecard.team_id) {
+        const [teamResult, sharedResult] = await Promise.all([
+          getScorecardMembers(scorecard.id),
+          getAdditionalScorecardMembers(scorecard.id)
+        ])
+
+        if (teamResult.error) {
+          setError(teamResult.error)
+        } else {
+          setMembers(teamResult.members || [])
+        }
+
+        if (sharedResult.error) {
+          setError(sharedResult.error)
+        } else {
+          const teamMembers = teamResult.members || []
+          const teamMemberUserIds = new Set(teamMembers.map(m => m.user_id))
+
+          // Filter out shared members who are already team members
+          const filteredSharedMembers = (sharedResult.members || []).filter(
+            member => !teamMemberUserIds.has(member.user_id)
+          )
+
+          setSharedMembers(filteredSharedMembers)
+        }
       } else {
-        setMembers(result.members || [])
+        // For non-team scorecards, only load shared members
+        const result = await getAdditionalScorecardMembers(scorecard.id)
+        if (result.error) {
+          setError(result.error)
+        } else {
+          setSharedMembers(result.members || [])
+        }
       }
     })
   }
 
+  // Filter available employees based on scorecard type
+  const availableEmployees = useMemo(() => {
+    if (scorecard.type === 'team' && scorecard.team_id) {
+      // For team scorecards, exclude team members and already-shared users
+      const teamMemberUserIds = new Set(members.map(m => m.user_id))
+      const sharedMemberUserIds = new Set(sharedMembers.map(m => m.user_id))
+
+      return employees.filter(
+        emp => !teamMemberUserIds.has(emp.profile_id) && !sharedMemberUserIds.has(emp.profile_id)
+      )
+    } else {
+      // For non-team scorecards, only exclude already-shared users
+      const sharedMemberUserIds = new Set(sharedMembers.map(m => m.user_id))
+      return employees.filter(emp => !sharedMemberUserIds.has(emp.profile_id))
+    }
+  }, [scorecard.type, scorecard.team_id, members, sharedMembers, employees])
 
   const handleAddMember = () => {
     if (!selectedEmployeeId) return
@@ -150,70 +197,118 @@ export function EditScorecardSheet({
               </div>
             </section>
 
-            {/* Team Members Section */}
-            <section>
-              <h3 className="text-sm font-semibold text-gray-900 uppercase tracking-wide mb-4">
-                Team Members
-              </h3>
+            {/* Team Members Section - Only for team scorecards */}
+            {scorecard.type === 'team' && scorecard.team_id && (
+              <section>
+                <h3 className="text-sm font-semibold text-gray-900 uppercase tracking-wide mb-4">
+                  Team Members
+                </h3>
 
-              {/* Info message for team scorecards */}
-              {scorecard.type === 'team' && scorecard.team_id && (
                 <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
                   <p className="text-sm text-blue-800">
                     <strong>Auto-synced:</strong> Members are automatically synced from the {scorecard.name} team.
-                    To add or remove members, manage them in the team settings.
+                    To add or remove team members, manage them in the team settings.
+                  </p>
+                </div>
+
+                {/* Team Members List */}
+                <div className="space-y-3">
+                  {members.length === 0 ? (
+                    <p className="text-sm text-gray-500 text-center py-8">No team members yet</p>
+                  ) : (
+                    members.map((member) => (
+                      <div
+                        key={member.id}
+                        className="flex items-center justify-between p-4 bg-white border border-gray-200 rounded-lg"
+                      >
+                        <div className="flex items-center gap-3 min-w-0 flex-1">
+                          <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-sm font-semibold text-blue-700 flex-shrink-0">
+                            {member.profile.full_name?.charAt(0).toUpperCase() || '?'}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <p className="font-medium text-sm text-gray-900 truncate">
+                              {member.profile.full_name}
+                            </p>
+                            <p className="text-xs text-gray-500 truncate">
+                              {member.profile.email}
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-2 flex-shrink-0 ml-4">
+                          <span className="px-2.5 py-1.5 border border-gray-300 rounded-md text-sm bg-gray-50 text-gray-700">
+                            {member.role === 'owner' ? 'Owner' : 'Viewer'}
+                          </span>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </section>
+            )}
+
+            {/* Shared With Section - For all scorecards */}
+            <section>
+              <h3 className="text-sm font-semibold text-gray-900 uppercase tracking-wide mb-4">
+                {scorecard.type === 'team' ? 'Additional Shared Access' : 'Shared With'}
+              </h3>
+
+              {scorecard.type === 'team' && (
+                <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-lg">
+                  <p className="text-sm text-green-800">
+                    <strong>Optional:</strong> Grant additional access to users outside your team. They will have access alongside team members.
                   </p>
                 </div>
               )}
 
-              {/* Add Member Card - Only show for non-team scorecards */}
-              {scorecard.type !== 'team' && (
-                <div className="mb-6 p-4 bg-gray-50 border border-gray-200 rounded-lg">
-                  <label className="block text-sm font-medium text-gray-700 mb-3">
-                    Add Member
-                  </label>
-                  <div className="space-y-3">
-                    <EmployeeCombobox
-                      employees={employees}
-                      value={selectedEmployeeId}
-                      onValueChange={setSelectedEmployeeId}
-                      placeholder="Select employee..."
-                    />
-                    <div className="flex gap-2">
-                      <select
-                        value={selectedRole}
-                        onChange={(e) => setSelectedRole(e.target.value as 'editor' | 'viewer')}
-                        className="flex-1 px-3 py-2 border border-gray-300 rounded-lg shadow-sm text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
-                        disabled={isPending}
-                      >
-                        <option value="editor">Editor</option>
-                        <option value="viewer">Viewer</option>
-                      </select>
-                      <button
-                        onClick={handleAddMember}
-                        disabled={!selectedEmployeeId || isPending}
-                        className="px-4 py-2 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 shadow-sm"
-                      >
-                        <UserPlus className="w-4 h-4" />
-                        Add
-                      </button>
-                    </div>
+              {/* Add Member Card */}
+              <div className="mb-6 p-4 bg-gray-50 border border-gray-200 rounded-lg">
+                <label className="block text-sm font-medium text-gray-700 mb-3">
+                  Add User
+                </label>
+                <div className="space-y-3">
+                  <EmployeeCombobox
+                    employees={availableEmployees}
+                    value={selectedEmployeeId}
+                    onValueChange={setSelectedEmployeeId}
+                    placeholder="Select employee..."
+                  />
+                  <div className="flex gap-2">
+                    <select
+                      value={selectedRole}
+                      onChange={(e) => setSelectedRole(e.target.value as 'editor' | 'viewer')}
+                      className="flex-1 px-3 py-2 border border-gray-300 rounded-lg shadow-sm text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
+                      disabled={isPending}
+                    >
+                      <option value="editor">Editor</option>
+                      <option value="viewer">Viewer</option>
+                    </select>
+                    <button
+                      onClick={handleAddMember}
+                      disabled={!selectedEmployeeId || isPending}
+                      className="px-4 py-2 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 shadow-sm"
+                    >
+                      <UserPlus className="w-4 h-4" />
+                      Add
+                    </button>
                   </div>
                 </div>
-              )}
+              </div>
 
-              {/* Members List */}
+              {/* Shared Members List */}
               <div className="space-y-3">
-                {members.length === 0 ? (
-                  <p className="text-sm text-gray-500 text-center py-8">No members yet</p>
+                {sharedMembers.length === 0 ? (
+                  <p className="text-sm text-gray-500 text-center py-8">
+                    No additional shared access yet
+                  </p>
                 ) : (
-                  members.map((member) => (
+                  sharedMembers.map((member) => (
                     <div
                       key={member.id}
                       className="flex items-center justify-between p-4 bg-white border border-gray-200 rounded-lg hover:shadow-sm transition-shadow"
                     >
                       <div className="flex items-center gap-3 min-w-0 flex-1">
-                        <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-sm font-semibold text-blue-700 flex-shrink-0">
+                        <div className="w-10 h-10 rounded-full bg-green-100 flex items-center justify-center text-sm font-semibold text-green-700 flex-shrink-0">
                           {member.profile.full_name?.charAt(0).toUpperCase() || '?'}
                         </div>
                         <div className="min-w-0 flex-1">
@@ -231,19 +326,15 @@ export function EditScorecardSheet({
                           value={member.role}
                           onChange={(e) => handleRoleChange(member.id, e.target.value as 'owner' | 'editor' | 'viewer')}
                           className="px-2.5 py-1.5 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
-                          disabled={
-                            isPending ||
-                            member.role === 'owner' ||
-                            (scorecard.type === 'team' && Boolean(scorecard.team_id))
-                          }
+                          disabled={isPending || member.role === 'owner'}
                         >
                           <option value="owner">Owner</option>
                           <option value="editor">Editor</option>
                           <option value="viewer">Viewer</option>
                         </select>
 
-                        {/* Only show remove button for non-team scorecards and non-owner members */}
-                        {member.role !== 'owner' && scorecard.type !== 'team' && (
+                        {/* Only show remove button for non-owner members */}
+                        {member.role !== 'owner' && (
                           <button
                             onClick={() => handleRemoveMember(member.id)}
                             disabled={isPending}
