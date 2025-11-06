@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useTransition, useRef, useEffect } from 'react'
+import type { ReactNode } from 'react'
 import { MessageSquare, Pencil } from 'lucide-react'
 import type { Tables } from '@/lib/types/database.types'
 import type { EmployeeWithProfile } from '@/lib/actions/employees'
@@ -306,7 +307,7 @@ export function TableView({ metrics, onMetricClick, onNoteClick, onArchiveMetric
                 {/* Period Columns - Scrollable */}
                 {displayPeriods.map((periodStart, idx) => {
                   const date = parseISODate(periodStart)
-                  let headerContent: JSX.Element
+                  let headerContent: ReactNode
 
                   if (cadence === 'weekly') {
                     const endDate = new Date(date)

@@ -28,7 +28,7 @@ export async function TeamScorecards({ teamId, userRole }: TeamScorecardsProps) 
     .eq("is_active", true)
     .order("created_at", { ascending: false })
 
-  const canCreate = userRole === TEAM_ROLES.OWNER || userRole === TEAM_ROLES.ADMIN
+  const canCreate = userRole === TEAM_ROLES.OWNER
 
   return (
     <Card>

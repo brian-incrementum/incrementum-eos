@@ -25,6 +25,7 @@ interface EmployeeComboboxProps {
   onValueChange: (value: string) => void
   placeholder?: string
   emptyText?: string
+  disabled?: boolean
 }
 
 export function EmployeeCombobox({
@@ -33,8 +34,10 @@ export function EmployeeCombobox({
   onValueChange,
   placeholder = 'Select employee...',
   emptyText = 'No employee found.',
+  disabled = false,
 }: EmployeeComboboxProps) {
   const [open, setOpen] = React.useState(false)
+  const popoverOpen = disabled ? false : open
 
   // Find employee by profile_id
   const selectedEmployee = employees.find((employee) => employee.profile_id === value)
@@ -42,13 +45,21 @@ export function EmployeeCombobox({
     employee.full_name || employee.profile.full_name || 'Unknown'
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover
+      open={popoverOpen}
+      onOpenChange={(nextOpen) => {
+        if (!disabled) {
+          setOpen(nextOpen)
+        }
+      }}
+    >
       <PopoverTrigger asChild>
         <Button
           variant="outline"
           role="combobox"
           aria-expanded={open}
           className="w-full justify-between"
+          disabled={disabled}
         >
           {selectedEmployee ? getDisplayName(selectedEmployee) : placeholder}
           <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />

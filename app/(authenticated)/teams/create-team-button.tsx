@@ -182,8 +182,8 @@ export function CreateTeamButton({ variant = "outline", isAdmin = false }: Creat
                   </label>
                   <EmployeeCombobox
                     employees={employees}
-                    value={selectedOwnerId || undefined}
-                    onValueChange={setSelectedOwnerId}
+                    value={selectedOwnerId ?? ''}
+                    onValueChange={(value) => setSelectedOwnerId(value || null)}
                     placeholder="Select team owner..."
                     disabled={isLoading || isLoadingEmployees}
                   />

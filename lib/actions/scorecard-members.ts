@@ -20,10 +20,6 @@ const mapTeamRoleToScorecardRole = (role: TeamMember['role']): MemberWithProfile
     return 'owner'
   }
 
-  if (role === 'admin') {
-    return 'editor'
-  }
-
   return 'viewer'
 }
 

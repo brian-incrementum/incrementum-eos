@@ -13,11 +13,16 @@ export default async function ProfilePage() {
     .single()
 
   // Try to fetch employee data by matching email
-  const { data: employee } = await supabase
-    .from('employees')
-    .select('*')
-    .eq('company_email', user.email)
-    .single()
+  let employee = null
+
+  if (user.email) {
+    const { data } = await supabase
+      .from('employees')
+      .select('*')
+      .eq('company_email', user.email)
+      .single()
+    employee = data
+  }
 
   return (
     <div className="min-h-screen bg-gray-50">

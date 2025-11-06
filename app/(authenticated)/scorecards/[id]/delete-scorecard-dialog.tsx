@@ -24,7 +24,7 @@ export function DeleteScorecardDialog({
   onOpenChange,
   scorecardId,
   scorecardName,
-}: ArchiveScorecardDialogProps) {
+}: DeleteScorecardDialogProps) {
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
   const [error, setError] = useState<string | null>(null)

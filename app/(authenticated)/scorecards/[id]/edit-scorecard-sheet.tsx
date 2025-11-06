@@ -227,7 +227,11 @@ export function EditScorecardSheet({
                           value={member.role}
                           onChange={(e) => handleRoleChange(member.id, e.target.value as 'owner' | 'editor' | 'viewer')}
                           className="px-2.5 py-1.5 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
-                          disabled={isPending || member.role === 'owner' || (scorecard.type === 'team' && scorecard.team_id)}
+                          disabled={
+                            isPending ||
+                            member.role === 'owner' ||
+                            (scorecard.type === 'team' && Boolean(scorecard.team_id))
+                          }
                         >
                           <option value="owner">Owner</option>
                           <option value="editor">Editor</option>

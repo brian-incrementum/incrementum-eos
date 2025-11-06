@@ -45,7 +45,7 @@ export function TeamHeader({ team, userRole, userId }: TeamHeaderProps) {
     description: team.description || "",
   })
 
-  const canEdit = userRole === TEAM_ROLES.OWNER || userRole === TEAM_ROLES.ADMIN
+  const canEdit = userRole === TEAM_ROLES.OWNER
   const canDelete = userRole === TEAM_ROLES.OWNER
 
   const handleEdit = async (e: React.FormEvent) => {

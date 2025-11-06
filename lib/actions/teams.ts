@@ -302,7 +302,11 @@ export async function createTeam(data: {
     }
 
     // Prepare members to add
-    const membersToAdd: { team_id: string; user_id: string; role: string }[] = []
+    const membersToAdd: {
+      team_id: string
+      user_id: string
+      role: (typeof TEAM_ROLES)[keyof typeof TEAM_ROLES]
+    }[] = []
 
     // Add owner
     membersToAdd.push({

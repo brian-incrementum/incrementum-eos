@@ -106,6 +106,8 @@ export function ScorecardView({ scorecard, metrics, archivedMetrics, employees, 
   }, [])
 
   const getCurrentPeriod = () => periodStarts.get(activeTab)
+  const currentPeriodStart =
+    getCurrentPeriod() ?? toISODate(getCurrentPeriodStart(activeTab))
 
   const currentPeriodLabel = useMemo(() => {
     const periodStart = getCurrentPeriodStart(activeTab)
@@ -245,7 +247,7 @@ export function ScorecardView({ scorecard, metrics, archivedMetrics, employees, 
         <DetailModal
           metric={selectedMetric}
           scorecardId={scorecard.id}
-          currentPeriodStart={getCurrentPeriod()}
+          currentPeriodStart={currentPeriodStart}
           onClose={() => setSelectedMetric(null)}
         />
       )}
@@ -278,7 +280,7 @@ export function ScorecardView({ scorecard, metrics, archivedMetrics, employees, 
         open={showDeleteScorecardDialog}
         onOpenChange={setShowDeleteScorecardDialog}
         scorecardId={scorecard.id}
-        scorecardName={scorecard.name}
+        scorecardName={scorecard.name ?? 'Scorecard'}
       />
     </div>
   )

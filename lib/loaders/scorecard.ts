@@ -329,29 +329,29 @@ async function loadTeamEmployees({
       .map((employee) => [employee.company_email!.toLowerCase(), employee])
   )
 
-  const employeesWithProfiles: EmployeeWithProfile[] = profiles
-    .map((profile) => {
-      if (!profile.email) {
-        return null
-      }
+  const employeesWithProfiles = profiles.reduce<EmployeeWithProfile[]>((acc, profile) => {
+    if (!profile.email) {
+      return acc
+    }
 
-      const employeeRecord = employeesByEmail.get(profile.email.toLowerCase())
-      if (!employeeRecord) {
-        return null
-      }
+    const employeeRecord = employeesByEmail.get(profile.email.toLowerCase())
+    if (!employeeRecord) {
+      return acc
+    }
 
-      return {
-        ...employeeRecord,
-        profile_id: profile.id,
-        profile: {
-          id: profile.id,
-          email: profile.email,
-          full_name: profile.full_name,
-          avatar_url: profile.avatar_url,
-        },
-      }
+    acc.push({
+      ...employeeRecord,
+      profile_id: profile.id,
+      profile: {
+        id: profile.id,
+        email: profile.email,
+        full_name: profile.full_name,
+        avatar_url: profile.avatar_url,
+      },
     })
-    .filter((employee): employee is EmployeeWithProfile => Boolean(employee))
+
+    return acc
+  }, [])
 
   // Preserve original team member ordering by profile id
   const ordering = new Map(profiles.map((profile, index) => [profile.id, index]))
@@ -396,27 +396,27 @@ async function loadAllEmployees({
       .map((profile) => [profile.email.toLowerCase(), profile])
   )
 
-  return (employeesData ?? [])
-    .map((employee) => {
-      if (!employee.company_email) {
-        return null
-      }
+  return (employeesData ?? []).reduce<EmployeeWithProfile[]>((acc, employee) => {
+    if (!employee.company_email) {
+      return acc
+    }
 
-      const profile = profileByEmail.get(employee.company_email.toLowerCase())
-      if (!profile) {
-        return null
-      }
+    const profile = profileByEmail.get(employee.company_email.toLowerCase())
+    if (!profile) {
+      return acc
+    }
 
-      return {
-        ...employee,
-        profile_id: profile.id,
-        profile: {
-          id: profile.id,
-          email: profile.email,
-          full_name: profile.full_name,
-          avatar_url: profile.avatar_url,
-        },
-      }
+    acc.push({
+      ...employee,
+      profile_id: profile.id,
+      profile: {
+        id: profile.id,
+        email: profile.email,
+        full_name: profile.full_name,
+        avatar_url: profile.avatar_url,
+      },
     })
-    .filter((employee): employee is EmployeeWithProfile => Boolean(employee))
+
+    return acc
+  }, [])
 }

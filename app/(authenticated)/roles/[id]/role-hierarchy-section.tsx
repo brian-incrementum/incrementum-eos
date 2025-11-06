@@ -2,7 +2,9 @@ import Link from 'next/link'
 import { ArrowUp, ArrowDown } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import type { Role } from '@/lib/types/database.types'
+import type { Tables } from '@/lib/types/database.types'
+
+type Role = Tables<'roles'>
 
 interface RoleHierarchySectionProps {
   parentRole: Role | null
