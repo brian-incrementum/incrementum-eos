@@ -222,7 +222,7 @@ export function TeamMembers({
                       {member.role}
                     </Badge>
 
-                    {canManage && !isCurrentUser && (
+                    {canManage && (!isCurrentUser || isAdmin) && (
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
                           <Button variant="ghost" size="icon" className="size-8">
@@ -298,7 +298,9 @@ export function TeamMembers({
             </DialogTitle>
             <DialogDescription>
               {confirmDialog.type === "remove" &&
-                `Are you sure you want to remove ${confirmDialog.memberName} from this team?`}
+                (confirmDialog.memberId === currentUserId
+                  ? "Are you sure you want to remove yourself from this team?"
+                  : `Are you sure you want to remove ${confirmDialog.memberName} from this team?`)}
               {confirmDialog.type === "transfer" &&
                 `Are you sure you want to transfer ownership to ${confirmDialog.memberName}? You will become a regular team member.`}
             </DialogDescription>
