@@ -32,6 +32,6 @@ npm test
 docker compose up --build -d
 ```
 
-3. The web service listens on port `3000` by default. Adjust the mapped port in `docker-compose.yml` if you need to expose a different port on your VPS.
+3. The web service listens on port `3000` by default. Adjust the mapped port in `docker-compose.yaml` if you need to expose a different port on your VPS.
 
 Rebuild the image whenever dependencies change or when you pull new application code.
