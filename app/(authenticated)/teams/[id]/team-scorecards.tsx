@@ -42,7 +42,7 @@ export async function TeamScorecards({ teamId, userRole }: TeamScorecardsProps) 
           </div>
           {canCreate && (
             <Button size="sm" asChild>
-              <Link href="/scorecards?team_id={teamId}&create=true">
+              <Link href={`/scorecards?team_id=${teamId}&create=true`}>
                 <Plus className="mr-2 size-4" />
                 Create Scorecard
               </Link>

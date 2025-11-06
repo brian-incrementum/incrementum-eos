@@ -48,6 +48,7 @@ export async function loadScorecardListings({
     { data: metricRows, error: metricsError },
     { data: directReports, error: directReportsError },
     { data: teamOwners, error: teamOwnersError },
+    { data: userTeamMemberships, error: userTeamMembershipsError },
   ] = await Promise.all([
     supabase
       .from('scorecards')
@@ -79,6 +80,11 @@ export async function loadScorecardListings({
       .from('team_members')
       .select('team_id, user_id')
       .eq('role', 'owner'),
+    // Get all teams where the current user is a member (any role)
+    supabase
+      .from('team_members')
+      .select('team_id')
+      .eq('user_id', userId),
   ])
 
   if (scorecardsError) {
@@ -106,6 +112,10 @@ export async function loadScorecardListings({
     console.error('Error fetching team owners', teamOwnersError)
   }
 
+  if (userTeamMembershipsError) {
+    console.error('Error fetching user team memberships', userTeamMembershipsError)
+  }
+
   const yourScorecardIds = new Set<string>()
   const metricCountByScorecard = new Map<string, number>()
 
@@ -123,10 +133,23 @@ export async function loadScorecardListings({
     }
   })
 
+  // Create a set of team IDs where the user is a member
+  const userTeamIds = new Set<string>()
+  userTeamMemberships?.forEach((membership) => {
+    if (membership.team_id) {
+      userTeamIds.add(membership.team_id)
+    }
+  })
+
   const scorecards = (scorecardsData ?? []) as ScorecardRow[]
 
   scorecards.forEach((scorecard) => {
     if (scorecard.owner_user_id === userId) {
+      yourScorecardIds.add(scorecard.id)
+    }
+
+    // Check if this is a team scorecard where the user is a member
+    if (scorecard.type === 'team' && scorecard.team_id && userTeamIds.has(scorecard.team_id)) {
       yourScorecardIds.add(scorecard.id)
     }
 

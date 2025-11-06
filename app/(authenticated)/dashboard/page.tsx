@@ -19,15 +19,38 @@ export default async function DashboardPage() {
         </p>
       </div>
 
-      {/* Content will be added here */}
-      <div className="flex min-h-[400px] items-center justify-center rounded-lg border border-dashed">
-        <div className="text-center">
-          <h3 className="text-muted-foreground text-lg font-medium">
-            Your dashboard is ready
+      {/* Our Values Card */}
+      <div className="bg-white shadow rounded-lg overflow-hidden">
+        <div className="px-6 py-8">
+          <h3 className="text-lg font-semibold text-gray-900 mb-6">
+            Our Values
           </h3>
-          <p className="text-muted-foreground/70 mt-2 text-sm">
-            Content coming soon...
-          </p>
+          <div className="space-y-6">
+            <div>
+              <h4 className="text-base font-semibold text-gray-900 mb-2">
+                Team-first
+              </h4>
+              <p className="text-sm text-gray-700">
+                Happy team, happy customers - build trust
+              </p>
+            </div>
+            <div>
+              <h4 className="text-base font-semibold text-gray-900 mb-2">
+                Ability to add value
+              </h4>
+              <p className="text-sm text-gray-700">
+                Execute with excellence - ownership - get things done - self-driven - committed - no excuses - going extra mile - being thoughtful - above and beyond
+              </p>
+            </div>
+            <div>
+              <h4 className="text-base font-semibold text-gray-900 mb-2">
+                Growth-oriented
+              </h4>
+              <p className="text-sm text-gray-700">
+                Continuous self-improvement - curiosity - asking questions for improvement
+              </p>
+            </div>
+          </div>
         </div>
       </div>
     </div>

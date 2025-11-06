@@ -5,7 +5,7 @@ import { revalidatePath } from 'next/cache'
 import { AuthError, requireUser } from '@/lib/auth/session'
 import { loadScorecardListings } from '@/lib/loaders/scorecard-listings'
 import type { ScorecardTable, ScorecardWithDetails } from '@/lib/types/scorecards'
-import { canCreateRoleScorecardFor, isSystemAdmin } from '@/lib/auth/permissions'
+import { canCreateRoleScorecardFor, canCreateTeamScorecard, isSystemAdmin } from '@/lib/auth/permissions'
 
 type Scorecard = ScorecardTable
 
@@ -127,11 +127,17 @@ export async function createScorecard(formData: FormData): Promise<{
     const isAdmin = await isSystemAdmin(user.id, supabase)
 
     if (type === 'team') {
-      // Only system admins can create team scorecards
-      if (!isAdmin) {
+      // Check if team ID is provided
+      if (!teamId) {
+        return { success: false, error: 'Team ID is required for team scorecards' }
+      }
+
+      // Check if user can create team scorecard (system admin or team owner)
+      const canCreate = await canCreateTeamScorecard(teamId, user.id, supabase)
+      if (!canCreate) {
         return {
           success: false,
-          error: 'Only system administrators can create team scorecards',
+          error: 'Only system administrators and team owners can create team scorecards',
         }
       }
     } else if (type === 'role') {
@@ -146,11 +152,7 @@ export async function createScorecard(formData: FormData): Promise<{
     }
 
     // Validate team scorecard
-    if (type === 'team') {
-      if (!teamId) {
-        return { success: false, error: 'Team ID is required for team scorecards' }
-      }
-
+    if (type === 'team' && teamId) {
       // Check if team already has a scorecard
       const { data: existingScorecard } = await supabase
         .from('scorecards')
@@ -307,6 +309,63 @@ export async function updateScorecard(
     }
 
     console.error('Unexpected error in updateScorecard:', error)
+    return { success: false, error: 'An unexpected error occurred' }
+  }
+}
+
+/**
+ * Delete a scorecard permanently (Admin only)
+ * Removes the scorecard and all related data from the database
+ */
+export async function deleteScorecard(scorecardId: string): Promise<{
+  success: boolean
+  error?: string
+}> {
+  try {
+    const { supabase, user } = await requireUser()
+
+    // Check if user is system admin
+    const isAdmin = await isSystemAdmin(user.id, supabase)
+    if (!isAdmin) {
+      return {
+        success: false,
+        error: 'Only system administrators can delete scorecards',
+      }
+    }
+
+    // Verify scorecard exists
+    const { data: scorecard } = await supabase
+      .from('scorecards')
+      .select('id, name')
+      .eq('id', scorecardId)
+      .single()
+
+    if (!scorecard) {
+      return { success: false, error: 'Scorecard not found' }
+    }
+
+    // Delete scorecard (cascade will handle related data like metrics, members, entries)
+    const { error: deleteError } = await supabase
+      .from('scorecards')
+      .delete()
+      .eq('id', scorecardId)
+
+    if (deleteError) {
+      console.error('Error deleting scorecard:', deleteError)
+      return { success: false, error: 'Failed to delete scorecard' }
+    }
+
+    // Revalidate the scorecard pages
+    revalidatePath('/scorecards')
+    revalidatePath(`/scorecards/${scorecardId}`)
+
+    return { success: true }
+  } catch (error) {
+    if (error instanceof AuthError) {
+      return { success: false, error: 'Not authenticated' }
+    }
+
+    console.error('Unexpected error in deleteScorecard:', error)
     return { success: false, error: 'An unexpected error occurred' }
   }
 }

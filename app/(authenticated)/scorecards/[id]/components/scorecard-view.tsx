@@ -1,7 +1,7 @@
 'use client'
 
 import { useMemo, useState } from 'react'
-import { Plus, Pencil, Archive } from 'lucide-react'
+import { Plus, Pencil, Archive, Trash2 } from 'lucide-react'
 import type { Tables } from '@/lib/types/database.types'
 import type { EmployeeWithProfile } from '@/lib/actions/employees'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -16,6 +16,7 @@ import { NoteModal } from './note-modal'
 import { AddMetricModal } from '../add-metric-modal'
 import { EditScorecardSheet } from '../edit-scorecard-sheet'
 import { ArchiveMetricDialog } from '../archive-metric-dialog'
+import { DeleteScorecardDialog } from '../delete-scorecard-dialog'
 import { ArchivedMetricsSection } from './archived-metrics-section'
 
 type Scorecard = Tables<'scorecards'>
@@ -34,9 +35,10 @@ interface ScorecardViewProps {
   archivedMetrics: MetricWithEntries[]
   employees: EmployeeWithProfile[]
   currentUserId: string
+  isAdmin: boolean
 }
 
-export function ScorecardView({ scorecard, metrics, archivedMetrics, employees, currentUserId }: ScorecardViewProps) {
+export function ScorecardView({ scorecard, metrics, archivedMetrics, employees, currentUserId, isAdmin }: ScorecardViewProps) {
   const [activeTab, setActiveTab] = useState<'weekly' | 'monthly' | 'quarterly'>('weekly')
   const [selectedMetric, setSelectedMetric] = useState<MetricWithEntries | null>(null)
   const [noteModalState, setNoteModalState] = useState<{
@@ -46,6 +48,7 @@ export function ScorecardView({ scorecard, metrics, archivedMetrics, employees, 
   const [showAddMetricModal, setShowAddMetricModal] = useState(false)
   const [showEditSheet, setShowEditSheet] = useState(false)
   const [metricToArchive, setMetricToArchive] = useState<MetricWithEntries | null>(null)
+  const [showDeleteScorecardDialog, setShowDeleteScorecardDialog] = useState(false)
   const [expandArchived, setExpandArchived] = useState(false)
 
   const cadenceConfigs = useMemo(
@@ -153,6 +156,16 @@ export function ScorecardView({ scorecard, metrics, archivedMetrics, employees, 
           </button>
         </div>
         <div className="flex items-center gap-3">
+          {isAdmin && (
+            <button
+              onClick={() => setShowDeleteScorecardDialog(true)}
+              className="px-4 py-2 border border-red-300 text-red-700 hover:bg-red-50 rounded-lg text-sm font-medium transition-colors flex items-center gap-2"
+              title="Delete this scorecard"
+            >
+              <Trash2 className="w-4 h-4" />
+              Delete Scorecard
+            </button>
+          )}
           {archivedMetrics.length > 0 && (
             <button
               onClick={handleViewArchivedMetrics}
@@ -259,6 +272,13 @@ export function ScorecardView({ scorecard, metrics, archivedMetrics, employees, 
         onOpenChange={(open) => !open && setMetricToArchive(null)}
         metric={metricToArchive}
         scorecardId={scorecard.id}
+      />
+
+      <DeleteScorecardDialog
+        open={showDeleteScorecardDialog}
+        onOpenChange={setShowDeleteScorecardDialog}
+        scorecardId={scorecard.id}
+        scorecardName={scorecard.name}
       />
     </div>
   )

@@ -103,7 +103,8 @@ export function RolesTable({ initialRoles, isAdmin }: RolesTableProps) {
   const viewerRows = roles.map((role) => (
     <tr
       key={role.id}
-      className="border-b last:border-b-0 hover:bg-muted/20 transition-colors"
+      className="border-b last:border-b-0 hover:bg-muted/20 transition-colors cursor-pointer"
+      onClick={() => router.push(`/roles/${role.id}`)}
     >
       <td className="p-4">
         <p className="font-medium">{role.name}</p>
@@ -126,7 +127,7 @@ export function RolesTable({ initialRoles, isAdmin }: RolesTableProps) {
           <span className="text-sm text-muted-foreground">—</span>
         )}
       </td>
-      <td className="p-4">
+      <td className="p-4" onClick={(e) => e.stopPropagation()}>
         <ViewRoleMembersDialog
           roleId={role.id}
           roleName={role.name}

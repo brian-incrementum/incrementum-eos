@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useTransition, useEffect } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import {
   Dialog,
   DialogContent,
@@ -22,6 +22,7 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import { createScorecard } from '@/lib/actions/scorecards'
 import { getAllTeams } from '@/lib/actions/teams'
 import { createClient } from '@/lib/supabase/client'
+import { TEAM_ROLES } from '@/lib/auth/constants'
 import type { Tables } from '@/lib/types/database.types'
 
 type ScorecardType = 'team' | 'role'
@@ -38,6 +39,7 @@ export function CreateScorecardModal({
   isAdmin,
 }: CreateScorecardModalProps) {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const [isPending, startTransition] = useTransition()
   const [error, setError] = useState<string | null>(null)
   const [type, setType] = useState<ScorecardType>('team')
@@ -49,21 +51,102 @@ export function CreateScorecardModal({
   const [employees, setEmployees] = useState<Tables<'profiles'>[]>([])
   const [employeeRoles, setEmployeeRoles] = useState<Tables<'roles'>[]>([])
   const [isLoading, setIsLoading] = useState(false)
+  const [canCreateForTeam, setCanCreateForTeam] = useState(false)
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null)
+
+  // Get current user and check team permissions
+  useEffect(() => {
+    const checkPermissions = async () => {
+      const supabase = createClient()
+      const { data: { user } } = await supabase.auth.getUser()
+
+      if (user) {
+        setCurrentUserId(user.id)
+
+        // Check if user can create scorecard for the team in URL params
+        const teamIdParam = searchParams.get('team_id')
+        if (teamIdParam) {
+          // Check if user is system admin
+          const { data: profile } = await supabase
+            .from('profiles')
+            .select('is_system_admin')
+            .eq('id', user.id)
+            .single()
+
+          const isSystemAdmin = profile?.is_system_admin || false
+
+          // Check if user is team owner
+          const { data: teamMember } = await supabase
+            .from('team_members')
+            .select('role')
+            .eq('team_id', teamIdParam)
+            .eq('user_id', user.id)
+            .single()
+
+          const isTeamOwner = teamMember?.role === TEAM_ROLES.OWNER
+          const canCreate = isSystemAdmin || isTeamOwner
+
+          setCanCreateForTeam(canCreate)
+
+          // Pre-fill team and owner if user has access
+          if (canCreate) {
+            setTeamId(teamIdParam)
+            setType('team')
+            // Pre-fill owner to current user for team owners
+            if (!isSystemAdmin) {
+              setOwnerId(user.id)
+            }
+          }
+        }
+      }
+    }
+
+    if (open) {
+      checkPermissions()
+    }
+  }, [open, searchParams, isAdmin])
 
   // Fetch teams and roles when modal opens
   useEffect(() => {
-    if (open && isAdmin) {
+    if (open && (isAdmin || canCreateForTeam)) {
       setIsLoading(true)
       const supabase = createClient()
 
-      Promise.all([
-        getAllTeams(),
-        supabase.from('roles').select('*').order('display_order'),
-        supabase.from('profiles').select('*').eq('is_active', true).order('full_name'),
-      ]).then(([teamsResult, rolesResult, employeesResult]) => {
-        if (teamsResult.data) {
-          setTeams(teamsResult.data)
+      const loadData = async () => {
+        let teamsData = null
+
+        // For non-admins, directly query teams they own
+        if (!isAdmin && currentUserId) {
+          const { data: ownedTeamMembers } = await supabase
+            .from('team_members')
+            .select('teams(*)')
+            .eq('user_id', currentUserId)
+            .eq('role', TEAM_ROLES.OWNER)
+
+          teamsData = ownedTeamMembers?.map((tm: any) => tm.teams).filter(Boolean) || []
+        } else {
+          // For admins, get all teams
+          const teamsResult = await getAllTeams()
+          teamsData = teamsResult.data || []
         }
+
+        // Filter out teams that already have active scorecards
+        const { data: existingScorecards } = await supabase
+          .from('scorecards')
+          .select('team_id')
+          .eq('type', 'team')
+          .eq('is_active', true)
+          .not('team_id', 'is', null)
+
+        const teamsWithScorecards = new Set(existingScorecards?.map((s) => s.team_id) || [])
+        const availableTeams = teamsData.filter((team) => !teamsWithScorecards.has(team.id))
+
+        const [rolesResult, employeesResult] = await Promise.all([
+          supabase.from('roles').select('*').order('display_order'),
+          supabase.from('profiles').select('*').eq('is_active', true).order('full_name'),
+        ])
+
+        setTeams(availableTeams)
         if (rolesResult.data) {
           setRoles(rolesResult.data)
         }
@@ -71,9 +154,11 @@ export function CreateScorecardModal({
           setEmployees(employeesResult.data)
         }
         setIsLoading(false)
-      })
+      }
+
+      loadData()
     }
-  }, [open, isAdmin])
+  }, [open, isAdmin, canCreateForTeam, currentUserId])
 
   // Fetch employee's roles when employee is selected for role scorecard
   useEffect(() => {
@@ -163,7 +248,8 @@ export function CreateScorecardModal({
     onOpenChange(newOpen)
   }
 
-  if (!isAdmin) {
+  // Allow admins and team owners to access the modal
+  if (!isAdmin && !canCreateForTeam) {
     return null
   }
 
@@ -181,22 +267,23 @@ export function CreateScorecardModal({
         </DialogHeader>
         <form onSubmit={handleSubmit}>
           <div className="grid gap-6 py-4">
-            {/* Type Selection */}
-            <div className="grid gap-3">
-              <label className="text-sm font-medium">
-                Scorecard Type <span className="text-red-500">*</span>
-              </label>
-              <RadioGroup
-                value={type}
-                onValueChange={(value) => {
-                  setType(value as ScorecardType)
-                  setTeamId('')
-                  setRoleId('')
-                  setOwnerId('')
-                  setEmployeeRoles([])
-                }}
-                disabled={isPending}
-              >
+            {/* Type Selection - Only show if admin */}
+            {isAdmin && (
+              <div className="grid gap-3">
+                <label className="text-sm font-medium">
+                  Scorecard Type <span className="text-red-500">*</span>
+                </label>
+                <RadioGroup
+                  value={type}
+                  onValueChange={(value) => {
+                    setType(value as ScorecardType)
+                    setTeamId('')
+                    setRoleId('')
+                    setOwnerId('')
+                    setEmployeeRoles([])
+                  }}
+                  disabled={isPending}
+                >
                 <div className="flex items-center space-x-2">
                   <RadioGroupItem value="team" id="team" />
                   <Label htmlFor="team" className="font-normal cursor-pointer">
@@ -221,6 +308,7 @@ export function CreateScorecardModal({
                 </div>
               </RadioGroup>
             </div>
+            )}
 
             {/* Team Scorecard Fields */}
             {type === 'team' && (

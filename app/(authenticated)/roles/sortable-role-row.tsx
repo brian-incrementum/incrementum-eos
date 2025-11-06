@@ -1,5 +1,6 @@
 'use client'
 
+import { useRouter } from 'next/navigation'
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { GripVertical } from 'lucide-react'
@@ -19,6 +20,7 @@ export function SortableRoleRow({
   roles,
   isAdmin,
 }: SortableRoleRowProps) {
+  const router = useRouter()
   const {
     attributes,
     listeners,
@@ -34,14 +36,19 @@ export function SortableRoleRow({
     opacity: isDragging ? 0.5 : 1,
   }
 
+  const handleRowClick = () => {
+    router.push(`/roles/${role.id}`)
+  }
+
   return (
     <tr
       ref={setNodeRef}
       style={style}
-      className="border-b last:border-b-0 hover:bg-muted/20 transition-colors"
+      className="border-b last:border-b-0 hover:bg-muted/20 transition-colors cursor-pointer"
+      onClick={handleRowClick}
     >
       {isAdmin && (
-        <td className="p-4 w-10">
+        <td className="p-4 w-10" onClick={(e) => e.stopPropagation()}>
           <button
             {...attributes}
             {...listeners}
@@ -73,7 +80,7 @@ export function SortableRoleRow({
           <span className="text-sm text-muted-foreground">—</span>
         )}
       </td>
-      <td className="p-4">
+      <td className="p-4" onClick={(e) => e.stopPropagation()}>
         <ViewRoleMembersDialog
           roleId={role.id}
           roleName={role.name}
@@ -82,7 +89,7 @@ export function SortableRoleRow({
         />
       </td>
       {isAdmin && (
-        <td className="p-4">
+        <td className="p-4" onClick={(e) => e.stopPropagation()}>
           <div className="flex items-center justify-end gap-1">
             <EditRoleDialog role={role} roles={roles} isAdmin={isAdmin} />
             <DeleteRoleDialog role={role} isAdmin={isAdmin} />

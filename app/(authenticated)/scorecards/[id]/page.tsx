@@ -1,6 +1,7 @@
 import Link from 'next/link'
 
 import { requireUser } from '@/lib/auth/session'
+import { isSystemAdmin } from '@/lib/auth/permissions'
 import { loadScorecardAggregate } from '@/lib/loaders/scorecard'
 import { ScorecardView } from './components/scorecard-view'
 
@@ -34,6 +35,7 @@ export default async function ScorecardDetailPage({
   }
 
   const { scorecard, metrics, archivedMetrics = [], employees } = data
+  const isAdmin = await isSystemAdmin(user.id, supabase)
 
   return (
     <ScorecardView
@@ -42,6 +44,7 @@ export default async function ScorecardDetailPage({
       archivedMetrics={archivedMetrics}
       employees={employees}
       currentUserId={user.id}
+      isAdmin={isAdmin}
     />
   )
 }

@@ -1,6 +1,7 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { useSearchParams, useRouter } from 'next/navigation'
 import { CreateScorecardModal } from './create-scorecard-modal'
 import { EmptyState } from './empty-state'
 
@@ -11,6 +12,28 @@ interface ScorecardsHeaderProps {
 
 export function ScorecardsHeader({ hasScorecard, isAdmin }: ScorecardsHeaderProps) {
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
+  const [initialTeamId, setInitialTeamId] = useState<string | null>(null)
+  const searchParams = useSearchParams()
+  const router = useRouter()
+
+  // Auto-open modal when create=true parameter is present
+  useEffect(() => {
+    const shouldCreate = searchParams.get('create') === 'true'
+    if (shouldCreate) {
+      // Capture team_id before cleaning up URL
+      const teamId = searchParams.get('team_id')
+      setInitialTeamId(teamId)
+      setIsCreateModalOpen(true)
+
+      // Delay URL cleanup to ensure modal can read searchParams
+      setTimeout(() => {
+        const params = new URLSearchParams(searchParams.toString())
+        params.delete('create')
+        const newUrl = params.toString() ? `/scorecards?${params.toString()}` : '/scorecards'
+        router.replace(newUrl, { scroll: false })
+      }, 100)
+    }
+  }, [searchParams, router])
 
   return (
     <>
