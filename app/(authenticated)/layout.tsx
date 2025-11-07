@@ -20,7 +20,7 @@ export default async function AuthenticatedLayout({
         <AppSidebar isSystemAdmin={isAdmin} />
         <div className="flex min-h-screen flex-col">
           <TopBar />
-          <div className="flex-1 min-h-0 p-6 overflow-x-hidden">{children}</div>
+          <div className="flex-1 min-h-0 p-6">{children}</div>
         </div>
       </div>
     </SidebarProvider>
