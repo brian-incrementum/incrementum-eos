@@ -38,6 +38,120 @@ type TeamMemberWithProfile = {
   profiles: Pick<Profile, 'id' | 'email' | 'full_name' | 'avatar_url'> | null
 }
 
+async function loadAllEmployees({
+  supabase,
+}: {
+  supabase: SupabaseClient<Database>
+}): Promise<EmployeeWithProfile[]> {
+  const [{ data: employeesData, error: employeesError }, { data: profileIndex, error: profilesError }] =
+    await Promise.all([
+      supabase
+        .from('employees')
+        .select('*')
+        .order('full_name', { ascending: true }),
+      supabase
+        .from('profiles')
+        .select('id, email, full_name, avatar_url'),
+    ])
+
+  if (employeesError) {
+    console.error('Error loading employees for scorecard', employeesError)
+    return []
+  }
+
+  if (profilesError) {
+    console.error('Error loading profiles for employee merge', profilesError)
+    return []
+  }
+
+  const profileByEmail = new Map(
+    (profileIndex ?? [])
+      .filter((profile): profile is { id: string; email: string; full_name: string | null; avatar_url: string | null } => Boolean(profile.email))
+      .map((profile) => [profile.email.toLowerCase(), profile])
+  )
+
+  return (employeesData ?? []).reduce<EmployeeWithProfile[]>((acc, employee) => {
+    if (!employee.company_email) {
+      return acc
+    }
+
+    const profile = profileByEmail.get(employee.company_email.toLowerCase())
+    if (!profile) {
+      return acc
+    }
+
+    acc.push({
+      ...employee,
+      profile_id: profile.id,
+      profile: {
+        id: profile.id,
+        email: profile.email,
+        full_name: profile.full_name,
+        avatar_url: profile.avatar_url,
+      },
+    })
+
+    return acc
+  }, [])
+}
+
+/**
+ * Load eligible employees for metric ownership based on scorecard type
+ * - Team scorecards: team members + manually shared users
+ * - Role scorecards: only the scorecard owner
+ */
+async function loadEligibleOwners({
+  supabase,
+  scorecard,
+}: {
+  supabase: SupabaseClient<Database>
+  scorecard: Scorecard
+}): Promise<EmployeeWithProfile[]> {
+  // For role scorecards, only the scorecard owner can own metrics
+  if (scorecard.type === 'role') {
+    const allEmployees = await loadAllEmployees({ supabase })
+    const ownerEmployee = allEmployees.find(emp => emp.profile_id === scorecard.owner_user_id)
+    return ownerEmployee ? [ownerEmployee] : []
+  }
+
+  // For team scorecards, get team members + manually shared users
+  if (scorecard.type === 'team' && scorecard.team_id) {
+    const eligibleUserIds = new Set<string>()
+
+    // Always include the scorecard owner as a safeguard
+    if (scorecard.owner_user_id) {
+      eligibleUserIds.add(scorecard.owner_user_id)
+    }
+
+    // Get team members
+    const { data: teamMembers } = await supabase
+      .from('team_members')
+      .select('user_id')
+      .eq('team_id', scorecard.team_id)
+
+    teamMembers?.forEach(member => {
+      eligibleUserIds.add(member.user_id)
+    })
+
+    // Get manually shared users from scorecard_members
+    const { data: sharedMembers } = await supabase
+      .from('scorecard_members')
+      .select('user_id')
+      .eq('scorecard_id', scorecard.id)
+
+    sharedMembers?.forEach(member => {
+      eligibleUserIds.add(member.user_id)
+    })
+
+    // Filter all employees to only eligible users
+    const allEmployees = await loadAllEmployees({ supabase })
+    return allEmployees.filter(emp => eligibleUserIds.has(emp.profile_id))
+  }
+
+  // Fallback: return all employees (shouldn't reach here in normal operation)
+  return loadAllEmployees({ supabase })
+}
+
 /**
  * Load the full scorecard aggregate used by the detail page, including:
  * - Scorecard record (ensuring it is active)
@@ -52,19 +166,25 @@ export async function loadScorecardAggregate({
   scorecardId,
   userId,
 }: LoadScorecardAggregateOptions): Promise<ScorecardLoaderResult> {
-  // OPTIMIZATION: Fetch scorecard, metrics, employees, and archived count in parallel
+  // Fetch scorecard first (needed to determine eligible owners)
+  const { data: scorecard, error: scorecardError } = await supabase
+    .from('scorecards')
+    .select('*')
+    .eq('id', scorecardId)
+    .eq('is_active', true)
+    .single()
+
+  if (scorecardError || !scorecard) {
+    console.error('Error loading scorecard', scorecardError)
+    return { data: null, error: 'Scorecard not found' }
+  }
+
+  // OPTIMIZATION: Fetch metrics, employees, and archived count in parallel
   const [
-    { data: scorecard, error: scorecardError },
     { data: metricsData, error: metricsError },
     archivedCountResult,
     employees,
   ] = await Promise.all([
-    supabase
-      .from('scorecards')
-      .select('*')
-      .eq('id', scorecardId)
-      .eq('is_active', true)
-      .single(),
     supabase
       .from('metrics')
       .select('*')
@@ -77,16 +197,11 @@ export async function loadScorecardAggregate({
       .select('*', { count: 'exact', head: true })
       .eq('scorecard_id', scorecardId)
       .eq('is_archived', true),
-    loadAllEmployees({ supabase }),
+    loadEligibleOwners({ supabase, scorecard }),
   ])
 
   const archivedCount = archivedCountResult.count
   const archivedCountError = archivedCountResult.error
-
-  if (scorecardError || !scorecard) {
-    console.error('Error loading scorecard', scorecardError)
-    return { data: null, error: 'Scorecard not found' }
-  }
 
   if (metricsError) {
     console.error('Error loading scorecard metrics', metricsError)
@@ -364,63 +479,6 @@ async function loadTeamEmployees({
   })
 
   return employeesWithProfiles
-}
-
-async function loadAllEmployees({
-  supabase,
-}: {
-  supabase: SupabaseClient<Database>
-}): Promise<EmployeeWithProfile[]> {
-  const [{ data: employeesData, error: employeesError }, { data: profileIndex, error: profilesError }] =
-    await Promise.all([
-      supabase
-        .from('employees')
-        .select('*')
-        .order('full_name', { ascending: true }),
-      supabase
-        .from('profiles')
-        .select('id, email, full_name, avatar_url'),
-    ])
-
-  if (employeesError) {
-    console.error('Error loading employees for scorecard', employeesError)
-    return []
-  }
-
-  if (profilesError) {
-    console.error('Error loading profiles for employee merge', profilesError)
-    return []
-  }
-
-  const profileByEmail = new Map(
-    (profileIndex ?? [])
-      .filter((profile): profile is { id: string; email: string; full_name: string | null; avatar_url: string | null } => Boolean(profile.email))
-      .map((profile) => [profile.email.toLowerCase(), profile])
-  )
-
-  return (employeesData ?? []).reduce<EmployeeWithProfile[]>((acc, employee) => {
-    if (!employee.company_email) {
-      return acc
-    }
-
-    const profile = profileByEmail.get(employee.company_email.toLowerCase())
-    if (!profile) {
-      return acc
-    }
-
-    acc.push({
-      ...employee,
-      profile_id: profile.id,
-      profile: {
-        id: profile.id,
-        email: profile.email,
-        full_name: profile.full_name,
-        avatar_url: profile.avatar_url,
-      },
-    })
-
-    return acc
-  }, [])
 }
 
 /**

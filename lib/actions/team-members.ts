@@ -258,7 +258,7 @@ export async function removeTeamMember(
       return { success: false, error: error.message }
     }
 
-    // Clean up scorecard_members for team scorecards
+    // Clean up scorecard_members and unassign metrics for team scorecards
     const { data: teamScorecards } = await supabase
       .from('scorecards')
       .select('id')
@@ -267,6 +267,15 @@ export async function removeTeamMember(
 
     if (teamScorecards && teamScorecards.length > 0) {
       const scorecardIds = teamScorecards.map((s) => s.id)
+
+      // Unassign any metrics owned by the removed team member
+      await supabase
+        .from('metrics')
+        .update({ owner_user_id: null })
+        .in('scorecard_id', scorecardIds)
+        .eq('owner_user_id', userId)
+
+      // Remove from scorecard_members
       await supabase
         .from('scorecard_members')
         .delete()
@@ -537,7 +546,7 @@ export async function leaveTeam(teamId: string): Promise<{
           return { success: false, error: removeError.message }
         }
 
-        // Clean up scorecard_members for team scorecards
+        // Clean up scorecard_members and unassign metrics for team scorecards
         const { data: teamScorecards } = await supabase
           .from('scorecards')
           .select('id')
@@ -546,6 +555,15 @@ export async function leaveTeam(teamId: string): Promise<{
 
         if (teamScorecards && teamScorecards.length > 0) {
           const scorecardIds = teamScorecards.map((s) => s.id)
+
+          // Unassign any metrics owned by the leaving member
+          await supabase
+            .from('metrics')
+            .update({ owner_user_id: null })
+            .in('scorecard_id', scorecardIds)
+            .eq('owner_user_id', user.id)
+
+          // Remove from scorecard_members
           await supabase
             .from('scorecard_members')
             .delete()
@@ -577,7 +595,7 @@ export async function leaveTeam(teamId: string): Promise<{
       return { success: false, error: error.message }
     }
 
-    // Clean up scorecard_members for team scorecards
+    // Clean up scorecard_members and unassign metrics for team scorecards
     const { data: teamScorecards } = await supabase
       .from('scorecards')
       .select('id')
@@ -586,6 +604,15 @@ export async function leaveTeam(teamId: string): Promise<{
 
     if (teamScorecards && teamScorecards.length > 0) {
       const scorecardIds = teamScorecards.map((s) => s.id)
+
+      // Unassign any metrics owned by the leaving member
+      await supabase
+        .from('metrics')
+        .update({ owner_user_id: null })
+        .in('scorecard_id', scorecardIds)
+        .eq('owner_user_id', user.id)
+
+      // Remove from scorecard_members
       await supabase
         .from('scorecard_members')
         .delete()
