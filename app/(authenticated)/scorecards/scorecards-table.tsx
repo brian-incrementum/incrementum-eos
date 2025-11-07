@@ -1,4 +1,7 @@
+"use client"
+
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import type { ScorecardWithDetails } from '@/lib/types/scorecards'
 
 interface ScorecardsTableProps {
@@ -7,6 +10,7 @@ interface ScorecardsTableProps {
 }
 
 export function ScorecardsTable({ scorecards, emptyMessage = 'No scorecards found' }: ScorecardsTableProps) {
+  const router = useRouter()
   if (scorecards.length === 0) {
     return (
       <div className="bg-white rounded-lg shadow p-8 text-center">
@@ -45,7 +49,7 @@ export function ScorecardsTable({ scorecards, emptyMessage = 'No scorecards foun
                   <Link
                     href={`/scorecards/${scorecard.id}`}
                     className="font-medium text-blue-600 hover:text-blue-800 hover:underline"
-                    prefetch={true}
+                    onMouseEnter={() => router.prefetch(`/scorecards/${scorecard.id}`)}
                   >
                     {scorecard.name}
                   </Link>

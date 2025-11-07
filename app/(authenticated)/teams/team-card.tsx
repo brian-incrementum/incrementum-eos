@@ -1,4 +1,7 @@
+"use client"
+
 import Link from "next/link"
+import { useRouter } from "next/navigation"
 import { Users, ClipboardList } from "lucide-react"
 import {
   Card,
@@ -25,6 +28,8 @@ interface TeamCardProps {
 }
 
 export function TeamCard({ team, isAdminView = false }: TeamCardProps) {
+  const router = useRouter()
+
   // Get current user's role in the team
   const getUserRole = () => {
     // This would need current user context
@@ -37,7 +42,10 @@ export function TeamCard({ team, isAdminView = false }: TeamCardProps) {
   const scorecardCount = team.scorecard_count ?? 0
 
   return (
-    <Link href={`/teams/${team.id}`}>
+    <Link
+      href={`/teams/${team.id}`}
+      onMouseEnter={() => router.prefetch(`/teams/${team.id}`)}
+    >
       <Card className="cursor-pointer transition-colors hover:bg-accent">
         <CardHeader>
           <div className="flex items-start justify-between">

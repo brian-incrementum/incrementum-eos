@@ -4,6 +4,7 @@ import { isSystemAdmin } from '@/lib/auth/permissions'
 import { ScorecardsTable } from './scorecards-table'
 import { ScorecardsHeader } from './scorecards-header'
 import { TEAM_ROLES } from '@/lib/auth/constants'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 
 // Enable ISR: Cache this page for 60 seconds for faster subsequent loads
 export const revalidate = 60
@@ -41,6 +42,11 @@ export default async function ScorecardsPage() {
     )
   }
 
+  // Split scorecards by type
+  const teamScorecards = yourScorecards.filter(s => s.type === 'team')
+  const roleScorecards = yourScorecards.filter(s => s.type === 'role')
+  const personalScorecards = yourScorecards.filter(s => s.type === 'personal')
+
   return (
     <div className="space-y-8">
       {/* Header with Create Button */}
@@ -50,15 +56,56 @@ export default async function ScorecardsPage() {
         canCreateScorecard={canCreate}
       />
 
-      {/* Your Scorecards Section */}
+      {/* Your Scorecards with Tabs */}
       <section>
         <h2 className="text-xl font-semibold text-gray-900 mb-4">
           {isAdmin ? 'Your Scorecards' : 'Scorecards'}
         </h2>
-        <ScorecardsTable
-          scorecards={yourScorecards}
-          emptyMessage="You don't have any scorecards yet. Create one to get started!"
-        />
+
+        {yourScorecards.length === 0 ? (
+          <div className="bg-white rounded-lg shadow p-8 text-center">
+            <p className="text-gray-500">You don't have any scorecards yet. Create one to get started!</p>
+          </div>
+        ) : (
+          <Tabs defaultValue="team" className="w-full">
+            <TabsList>
+              <TabsTrigger value="team">
+                Team Scorecards ({teamScorecards.length})
+              </TabsTrigger>
+              <TabsTrigger value="role">
+                Role Scorecards ({roleScorecards.length})
+              </TabsTrigger>
+              {personalScorecards.length > 0 && (
+                <TabsTrigger value="personal">
+                  Personal ({personalScorecards.length})
+                </TabsTrigger>
+              )}
+            </TabsList>
+
+            <TabsContent value="team" className="mt-6">
+              <ScorecardsTable
+                scorecards={teamScorecards}
+                emptyMessage="No team scorecards yet."
+              />
+            </TabsContent>
+
+            <TabsContent value="role" className="mt-6">
+              <ScorecardsTable
+                scorecards={roleScorecards}
+                emptyMessage="No role scorecards yet."
+              />
+            </TabsContent>
+
+            {personalScorecards.length > 0 && (
+              <TabsContent value="personal" className="mt-6">
+                <ScorecardsTable
+                  scorecards={personalScorecards}
+                  emptyMessage="No personal scorecards yet."
+                />
+              </TabsContent>
+            )}
+          </Tabs>
+        )}
       </section>
 
       {/* Company Scorecards Section - Only for Admins */}
