@@ -398,16 +398,31 @@ export function TableView({ metrics, onMetricClick, onNoteClick, onArchiveMetric
     })
   }
 
+  const stickyColumnsWidth =
+    columnWidths.dragHandle +
+    columnWidths.checkbox +
+    columnWidths.title +
+    columnWidths.goal +
+    columnWidths.average
+
+  const tableMinWidth = stickyColumnsWidth + displayPeriods.length * columnWidths.period
+
   return (
-    <>
-      <div className="bg-white rounded-lg shadow overflow-hidden w-full">
-        <div className="overflow-x-auto w-full" suppressHydrationWarning>
+    <div className="flex flex-col min-w-0 gap-4">
+      <div className="bg-white rounded-lg shadow overflow-hidden w-full max-w-full">
+        <div
+          className="overflow-x-auto overscroll-x-contain w-full max-w-full"
+          suppressHydrationWarning
+        >
           <DndContext
             sensors={sensors}
             collisionDetection={closestCenter}
             onDragEnd={handleDragEnd}
           >
-            <table className="w-full text-sm border-collapse">
+            <table
+              className="w-full text-sm border-collapse"
+              style={{ minWidth: tableMinWidth }}
+            >
               <thead>
                 <tr className="border-b border-gray-200">
                   {/* Drag Handle Column - Sticky */}
@@ -609,6 +624,6 @@ export function TableView({ metrics, onMetricClick, onNoteClick, onArchiveMetric
         onClearSelection={clearSelection}
         onArchive={handleBulkArchive}
       />
-    </>
+    </div>
   )
 }

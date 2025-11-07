@@ -140,7 +140,7 @@ export function ScorecardView({ scorecard, metrics, archivedMetrics, employees, 
   }
 
   return (
-    <div className="flex h-full w-full max-w-full flex-col overflow-hidden">
+    <div className="flex h-full w-full max-w-full min-w-0 flex-col overflow-hidden">
       <div className="flex flex-shrink-0 items-center justify-between gap-4">
         <div className="flex items-center gap-3">
           <div>
@@ -179,11 +179,11 @@ export function ScorecardView({ scorecard, metrics, archivedMetrics, employees, 
         </div>
       </div>
 
-      <div className="mt-6 flex flex-1 flex-col overflow-hidden">
+      <div className="mt-6 flex flex-1 min-w-0 flex-col overflow-hidden">
         <Tabs
           value={activeTab}
           onValueChange={(value) => setActiveTab(value as 'weekly' | 'monthly' | 'quarterly')}
-          className="flex flex-1 min-h-0 flex-col overflow-hidden"
+          className="flex flex-1 min-h-0 min-w-0 flex-col overflow-hidden"
         >
           <TabsList className="grid w-full max-w-md grid-cols-3 flex-shrink-0">
             {cadenceConfigs.map(({ id, label }) => (
@@ -193,10 +193,10 @@ export function ScorecardView({ scorecard, metrics, archivedMetrics, employees, 
             ))}
           </TabsList>
 
-          <div className="mt-6 flex-1 overflow-y-auto overflow-x-hidden">
-            <div className="flex h-full min-h-0 flex-col gap-6">
+          <div className="mt-6 flex-1 min-w-0 overflow-y-auto overflow-x-hidden">
+            <div className="flex h-full min-h-0 min-w-0 flex-col gap-6">
               {cadenceConfigs.map(({ id }) => (
-                <TabsContent key={id} value={id} className="flex-1 min-h-0">
+                <TabsContent key={id} value={id} className="flex-1 min-h-0 min-w-0">
                   <TableView
                     metrics={metricsByCadence.get(id) ?? []}
                     onMetricClick={handleMetricClick}
