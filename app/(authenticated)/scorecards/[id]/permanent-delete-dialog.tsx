@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useTransition } from 'react'
+import { useRouter } from 'next/navigation'
 import {
   Dialog,
   DialogContent,
@@ -28,6 +29,7 @@ export function PermanentDeleteDialog({
   metric,
   scorecardId,
 }: PermanentDeleteDialogProps) {
+  const router = useRouter()
   const [isPending, startTransition] = useTransition()
   const [error, setError] = useState<string | null>(null)
   const [confirmationText, setConfirmationText] = useState('')
@@ -49,6 +51,8 @@ export function PermanentDeleteDialog({
       if (result.success) {
         setConfirmationText('')
         onOpenChange(false)
+        // Refresh server data to update UI
+        router.refresh()
       } else {
         setError(result.error || 'Failed to permanently delete metric')
       }

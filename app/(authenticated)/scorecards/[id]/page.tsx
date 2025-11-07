@@ -2,7 +2,7 @@ import Link from 'next/link'
 
 import { requireUser } from '@/lib/auth/session'
 import { isSystemAdmin } from '@/lib/auth/permissions'
-import { loadScorecardAggregate } from '@/lib/loaders/scorecard'
+import { loadScorecardAggregate, loadCopyableMetricsForRole } from '@/lib/loaders/scorecard'
 import { ScorecardView } from './components/scorecard-view'
 
 // OPTIMIZATION: Cache page for 60 seconds (ISR)
@@ -43,16 +43,28 @@ export default async function ScorecardDetailPage({
     )
   }
 
-  const { scorecard, metrics, archivedMetrics = [], employees } = data
+  const { scorecard, metrics, archivedMetrics = [], archivedCount = 0, employees } = data
+
+  // Load copyable metrics from other scorecards with the same role
+  const copyableMetrics = scorecard.role_id
+    ? await loadCopyableMetricsForRole({
+        supabase,
+        roleId: scorecard.role_id,
+        currentScorecardId: scorecard.id,
+        currentMetrics: metrics,
+      })
+    : []
 
   return (
     <ScorecardView
       scorecard={scorecard}
       metrics={metrics}
       archivedMetrics={archivedMetrics}
+      archivedCount={archivedCount}
       employees={employees}
       currentUserId={user.id}
       isAdmin={isAdmin}
+      copyableMetrics={copyableMetrics}
     />
   )
 }

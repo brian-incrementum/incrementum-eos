@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { useRouter } from 'next/navigation'
 import { ChevronDown, ChevronUp, Archive, RotateCcw, Trash2 } from 'lucide-react'
 import type { Tables } from '@/lib/types/database.types'
 import type { EmployeeWithProfile } from '@/lib/actions/employees'
@@ -31,6 +32,7 @@ export function ArchivedMetricsSection({
   shouldExpand = false,
   onExpandChange,
 }: ArchivedMetricsSectionProps) {
+  const router = useRouter()
   const [isExpanded, setIsExpanded] = useState(false)
   const [metricToDelete, setMetricToDelete] = useState<Metric | null>(null)
   const [restoringMetricId, setRestoringMetricId] = useState<string | null>(null)
@@ -58,7 +60,11 @@ export function ArchivedMetricsSection({
   const handleRestore = async (metric: Metric) => {
     setRestoringMetricId(metric.id)
     try {
-      await restoreMetric(metric.id, scorecardId)
+      const result = await restoreMetric(metric.id, scorecardId)
+      if (result.success) {
+        // Refresh server data to update UI
+        router.refresh()
+      }
     } finally {
       setRestoringMetricId(null)
     }

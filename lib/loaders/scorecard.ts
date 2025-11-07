@@ -18,6 +18,7 @@ export interface ScorecardAggregate {
   scorecard: Scorecard
   metrics: MetricWithEntries[]
   archivedMetrics: MetricWithEntries[]
+  archivedCount: number
   employees: EmployeeWithProfile[]
 }
 
@@ -51,10 +52,11 @@ export async function loadScorecardAggregate({
   scorecardId,
   userId,
 }: LoadScorecardAggregateOptions): Promise<ScorecardLoaderResult> {
-  // OPTIMIZATION: Fetch scorecard, metrics, and employees in parallel
+  // OPTIMIZATION: Fetch scorecard, metrics, employees, and archived count in parallel
   const [
     { data: scorecard, error: scorecardError },
     { data: metricsData, error: metricsError },
+    { count: archivedCount, error: archivedCountError },
     employees,
   ] = await Promise.all([
     supabase
@@ -70,6 +72,11 @@ export async function loadScorecardAggregate({
       .eq('is_active', true)
       .eq('is_archived', false)
       .order('display_order', { ascending: true }),
+    supabase
+      .from('metrics')
+      .select('*', { count: 'exact', head: true })
+      .eq('scorecard_id', scorecardId)
+      .eq('is_archived', true),
     loadAllEmployees({ supabase }),
   ])
 
@@ -80,6 +87,10 @@ export async function loadScorecardAggregate({
 
   if (metricsError) {
     console.error('Error loading scorecard metrics', metricsError)
+  }
+
+  if (archivedCountError) {
+    console.error('Error loading archived metrics count', archivedCountError)
   }
 
   const metrics = metricsData ?? []
@@ -139,11 +150,13 @@ export async function loadScorecardAggregate({
   // OPTIMIZATION: Return empty archived metrics for now
   // Archived metrics will be loaded on-demand when user clicks "Archived" button
   // This reduces initial load time by 30-40%
+  // We return the count so the UI can show the "Archived" button when count > 0
   return {
     data: {
       scorecard,
       metrics: metricsWithEntries,
       archivedMetrics: [],
+      archivedCount: archivedCount ?? 0,
       employees,
     },
     error: null,
@@ -405,4 +418,93 @@ async function loadAllEmployees({
 
     return acc
   }, [])
+}
+
+/**
+ * Load copyable metrics from other scorecards with the same role
+ * Excludes metrics that already exist on the current scorecard (by name + scoring_mode)
+ */
+export async function loadCopyableMetricsForRole({
+  supabase,
+  roleId,
+  currentScorecardId,
+  currentMetrics,
+}: {
+  supabase: SupabaseClient<Database>
+  roleId: string
+  currentScorecardId: string
+  currentMetrics: MetricWithEntries[]
+}): Promise<MetricWithEntries[]> {
+  // Get all scorecards with the same role (excluding current scorecard)
+  const { data: relatedScorecards, error: scorecardsError } = await supabase
+    .from('scorecards')
+    .select('id')
+    .eq('role_id', roleId)
+    .eq('is_active', true)
+    .neq('id', currentScorecardId)
+
+  if (scorecardsError || !relatedScorecards || relatedScorecards.length === 0) {
+    return []
+  }
+
+  const relatedScorecardIds = relatedScorecards.map((sc) => sc.id)
+
+  // Get all active metrics from these scorecards
+  const { data: metricsData, error: metricsError } = await supabase
+    .from('metrics')
+    .select('*')
+    .in('scorecard_id', relatedScorecardIds)
+    .eq('is_active', true)
+    .eq('is_archived', false)
+    .order('created_at', { ascending: false })
+
+  if (metricsError || !metricsData) {
+    console.error('Error loading copyable metrics', metricsError)
+    return []
+  }
+
+  // Create a set of existing metric signatures (name + scoring_mode)
+  const existingMetricSignatures = new Set(
+    currentMetrics.map((m) => `${m.name.toLowerCase()}::${m.scoring_mode}`)
+  )
+
+  // Filter out metrics that already exist on current scorecard
+  const copyableMetrics = metricsData.filter((metric) => {
+    const signature = `${metric.name.toLowerCase()}::${metric.scoring_mode}`
+    return !existingMetricSignatures.has(signature)
+  })
+
+  if (copyableMetrics.length === 0) {
+    return []
+  }
+
+  // Load owner profiles for the copyable metrics
+  const ownerIds = Array.from(
+    new Set(
+      copyableMetrics
+        .map((metric) => metric.owner_user_id)
+        .filter((value): value is string => Boolean(value))
+    )
+  )
+
+  const { data: ownerProfiles, error: ownersError } = ownerIds.length > 0
+    ? await supabase
+        .from('profiles')
+        .select('id, full_name, email, avatar_url')
+        .in('id', ownerIds)
+    : { data: null, error: null }
+
+  const ownersMap = new Map<string, Profile>()
+  if (!ownersError && ownerProfiles) {
+    ownerProfiles.forEach((profile) => {
+      ownersMap.set(profile.id, profile as Profile)
+    })
+  }
+
+  // Return metrics with owner info but without entries (not needed for copying)
+  return copyableMetrics.map((metric) => ({
+    ...metric,
+    entries: [],
+    owner: metric.owner_user_id ? ownersMap.get(metric.owner_user_id) ?? null : null,
+  }))
 }

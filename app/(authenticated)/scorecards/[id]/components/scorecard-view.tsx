@@ -1,9 +1,10 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useMemo, useState, useEffect } from 'react'
 import { Plus, Pencil, Archive } from 'lucide-react'
 import type { Tables } from '@/lib/types/database.types'
 import type { EmployeeWithProfile } from '@/lib/actions/employees'
+import { getArchivedMetrics } from '@/lib/actions/metrics'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import {
   getCurrentPeriodStart,
@@ -32,12 +33,14 @@ interface ScorecardViewProps {
   scorecard: Scorecard
   metrics: MetricWithEntries[]
   archivedMetrics: MetricWithEntries[]
+  archivedCount: number
   employees: EmployeeWithProfile[]
   currentUserId: string
   isAdmin: boolean
+  copyableMetrics: MetricWithEntries[]
 }
 
-export function ScorecardView({ scorecard, metrics, archivedMetrics, employees, currentUserId, isAdmin }: ScorecardViewProps) {
+export function ScorecardView({ scorecard, metrics, archivedMetrics: initialArchivedMetrics, archivedCount, employees, currentUserId, isAdmin, copyableMetrics }: ScorecardViewProps) {
   const [activeTab, setActiveTab] = useState<'weekly' | 'monthly' | 'quarterly'>('weekly')
   const [selectedMetric, setSelectedMetric] = useState<MetricWithEntries | null>(null)
   const [noteModalState, setNoteModalState] = useState<{
@@ -48,6 +51,14 @@ export function ScorecardView({ scorecard, metrics, archivedMetrics, employees, 
   const [showEditSheet, setShowEditSheet] = useState(false)
   const [metricToArchive, setMetricToArchive] = useState<MetricWithEntries | null>(null)
   const [expandArchived, setExpandArchived] = useState(false)
+  const [archivedMetrics, setArchivedMetrics] = useState<MetricWithEntries[]>(initialArchivedMetrics)
+  const [isLoadingArchived, setIsLoadingArchived] = useState(false)
+
+  // Sync archived metrics from props to local state when props change
+  // This ensures UI updates after router.refresh() fetches new server data
+  useEffect(() => {
+    setArchivedMetrics(initialArchivedMetrics)
+  }, [initialArchivedMetrics])
 
   const cadenceConfigs = useMemo(
     () => (
@@ -124,9 +135,26 @@ export function ScorecardView({ scorecard, metrics, archivedMetrics, employees, 
     setMetricToArchive(metric)
   }
 
-  const handleViewArchivedMetrics = () => {
+  const handleViewArchivedMetrics = async () => {
     const newExpandedState = !expandArchived
     setExpandArchived(newExpandedState)
+
+    // Fetch archived metrics on-demand if not already loaded
+    if (newExpandedState && archivedMetrics.length === 0 && archivedCount > 0) {
+      setIsLoadingArchived(true)
+      try {
+        const result = await getArchivedMetrics(scorecard.id)
+        if (result.success && result.data) {
+          setArchivedMetrics(result.data)
+        } else {
+          console.error('Failed to load archived metrics:', result.error)
+        }
+      } catch (error) {
+        console.error('Error fetching archived metrics:', error)
+      } finally {
+        setIsLoadingArchived(false)
+      }
+    }
 
     // Only scroll to it when expanding
     if (newExpandedState) {
@@ -156,17 +184,18 @@ export function ScorecardView({ scorecard, metrics, archivedMetrics, employees, 
           </button>
         </div>
         <div className="flex items-center gap-3">
-          {archivedMetrics.length > 0 && (
+          {archivedCount > 0 && (
             <button
               onClick={handleViewArchivedMetrics}
-              className={`px-4 py-2 border rounded-lg text-sm font-medium transition-colors flex items-center gap-2 ${
+              disabled={isLoadingArchived}
+              className={`px-4 py-2 border rounded-lg text-sm font-medium transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed ${
                 expandArchived
                   ? 'bg-orange-600 text-white border-orange-600 hover:bg-orange-700'
                   : 'bg-orange-50 text-orange-700 border-orange-300 hover:bg-orange-100'
               }`}
             >
               <Archive className="w-4 h-4" />
-              Archived ({archivedMetrics.length})
+              {isLoadingArchived ? 'Loading...' : `Archived (${archivedMetrics.length > 0 ? archivedMetrics.length : archivedCount})`}
             </button>
           )}
           <button
@@ -229,6 +258,8 @@ export function ScorecardView({ scorecard, metrics, archivedMetrics, employees, 
         scorecardId={scorecard.id}
         employees={employees}
         currentUserId={currentUserId}
+        scorecardOwnerId={scorecard.owner_user_id}
+        copyableMetrics={copyableMetrics}
       />
 
       {selectedMetric && !noteModalState && (

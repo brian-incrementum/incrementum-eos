@@ -454,3 +454,246 @@ export async function reorderMetrics(
     return { success: false, error: 'An unexpected error occurred' }
   }
 }
+
+/**
+ * Copy metrics with new target values
+ * Prevents duplicates (same name + scoring_mode)
+ */
+export async function copyMetrics(
+  scorecardId: string,
+  scorecardOwnerId: string,
+  metricsToCopy: Array<{
+    sourceMetricId: string
+    targetValue?: number | null
+    targetMin?: number | null
+    targetMax?: number | null
+    targetBoolean?: boolean | null
+  }>
+): Promise<{
+  success: boolean
+  results: Array<{
+    sourceMetricId: string
+    success: boolean
+    error?: string
+    metricId?: string
+  }>
+  error?: string
+}> {
+  try {
+    const { supabase } = await requireUser()
+
+    // Get next display_order
+    const { data: maxOrderData } = await supabase
+      .from('metrics')
+      .select('display_order')
+      .eq('scorecard_id', scorecardId)
+      .order('display_order', { ascending: false })
+      .limit(1)
+      .single()
+
+    let nextOrder = maxOrderData ? maxOrderData.display_order + 1 : 0
+
+    const results: Array<{
+      sourceMetricId: string
+      success: boolean
+      error?: string
+      metricId?: string
+    }> = []
+
+    // Process each metric to copy
+    for (const metricData of metricsToCopy) {
+      // Fetch source metric (from any scorecard, not just current one)
+      const { data: sourceMetric, error: fetchError } = await supabase
+        .from('metrics')
+        .select('*')
+        .eq('id', metricData.sourceMetricId)
+        .single()
+
+      if (fetchError || !sourceMetric) {
+        results.push({
+          sourceMetricId: metricData.sourceMetricId,
+          success: false,
+          error: 'Source metric not found',
+        })
+        continue
+      }
+
+      // Check for duplicate (same name + scoring_mode among active metrics)
+      const { data: existingMetrics } = await supabase
+        .from('metrics')
+        .select('id, name, scoring_mode')
+        .eq('scorecard_id', scorecardId)
+        .eq('is_active', true)
+        .eq('name', sourceMetric.name)
+        .eq('scoring_mode', sourceMetric.scoring_mode)
+
+      if (existingMetrics && existingMetrics.length > 0) {
+        results.push({
+          sourceMetricId: metricData.sourceMetricId,
+          success: false,
+          error: `Duplicate metric: "${sourceMetric.name}" with ${sourceMetric.scoring_mode} mode already exists`,
+        })
+        continue
+      }
+
+      // Prepare target values based on scoring mode
+      let targetValue = sourceMetric.target_value
+      let targetMin = sourceMetric.target_min
+      let targetMax = sourceMetric.target_max
+      let targetBoolean = sourceMetric.target_boolean
+
+      // Apply custom target values if provided
+      if (sourceMetric.scoring_mode === 'at_least' || sourceMetric.scoring_mode === 'at_most') {
+        targetValue = metricData.targetValue !== undefined ? metricData.targetValue : sourceMetric.target_value
+      } else if (sourceMetric.scoring_mode === 'between') {
+        targetMin = metricData.targetMin !== undefined ? metricData.targetMin : sourceMetric.target_min
+        targetMax = metricData.targetMax !== undefined ? metricData.targetMax : sourceMetric.target_max
+      } else if (sourceMetric.scoring_mode === 'yes_no') {
+        targetBoolean = metricData.targetBoolean !== undefined ? metricData.targetBoolean : sourceMetric.target_boolean
+      }
+
+      // Validate targets based on scoring mode
+      if ((sourceMetric.scoring_mode === 'at_least' || sourceMetric.scoring_mode === 'at_most') && targetValue === null) {
+        results.push({
+          sourceMetricId: metricData.sourceMetricId,
+          success: false,
+          error: 'Target value is required for this scoring mode',
+        })
+        continue
+      }
+
+      if (sourceMetric.scoring_mode === 'between' && (targetMin === null || targetMax === null)) {
+        results.push({
+          sourceMetricId: metricData.sourceMetricId,
+          success: false,
+          error: 'Target min and max are required for between mode',
+        })
+        continue
+      }
+
+      if (sourceMetric.scoring_mode === 'between' && targetMin !== null && targetMax !== null && targetMin >= targetMax) {
+        results.push({
+          sourceMetricId: metricData.sourceMetricId,
+          success: false,
+          error: 'Target min must be less than target max',
+        })
+        continue
+      }
+
+      if (sourceMetric.scoring_mode === 'yes_no' && targetBoolean === null) {
+        results.push({
+          sourceMetricId: metricData.sourceMetricId,
+          success: false,
+          error: 'Target is required for Yes/No mode',
+        })
+        continue
+      }
+
+      // Create new metric with updated target values
+      const { data: newMetric, error: createError } = await supabase
+        .from('metrics')
+        .insert({
+          scorecard_id: scorecardId,
+          name: sourceMetric.name,
+          description: sourceMetric.description,
+          cadence: sourceMetric.cadence,
+          scoring_mode: sourceMetric.scoring_mode,
+          target_value: targetValue,
+          target_min: targetMin,
+          target_max: targetMax,
+          target_boolean: targetBoolean,
+          unit: sourceMetric.unit,
+          owner_user_id: scorecardOwnerId,
+          display_order: nextOrder,
+        })
+        .select()
+        .single()
+
+      if (createError || !newMetric) {
+        console.error('Error copying metric:', createError)
+        results.push({
+          sourceMetricId: metricData.sourceMetricId,
+          success: false,
+          error: 'Failed to copy metric',
+        })
+        continue
+      }
+
+      // Auto-add owner as scorecard member if not already a member
+      if (scorecardOwnerId) {
+        const { data: existingMember } = await supabase
+          .from('scorecard_members')
+          .select('id')
+          .eq('scorecard_id', scorecardId)
+          .eq('user_id', scorecardOwnerId)
+          .single()
+
+        if (!existingMember) {
+          await supabase
+            .from('scorecard_members')
+            .insert({
+              scorecard_id: scorecardId,
+              user_id: scorecardOwnerId,
+              role: 'editor',
+            })
+        }
+      }
+
+      results.push({
+        sourceMetricId: metricData.sourceMetricId,
+        success: true,
+        metricId: newMetric.id,
+      })
+
+      nextOrder++
+    }
+
+    // Revalidate the scorecard page
+    revalidatePath(`/scorecards/${scorecardId}`)
+
+    const allSucceeded = results.every((r) => r.success)
+    return {
+      success: allSucceeded,
+      results,
+      error: allSucceeded ? undefined : 'Some metrics failed to copy',
+    }
+  } catch (error) {
+    if (error instanceof AuthError) {
+      return {
+        success: false,
+        results: [],
+        error: 'Not authenticated',
+      }
+    }
+
+    console.error('Unexpected error in copyMetrics:', error)
+    return {
+      success: false,
+      results: [],
+      error: 'An unexpected error occurred',
+    }
+  }
+}
+
+/**
+ * Fetch archived metrics for a scorecard on-demand
+ * Used when user clicks the "Archived" button
+ */
+export async function getArchivedMetrics(scorecardId: string) {
+  try {
+    const { supabase } = await requireUser()
+
+    // Use the loader function to fetch archived metrics
+    const { loadArchivedMetrics } = await import('@/lib/loaders/scorecard')
+    const archivedMetrics = await loadArchivedMetrics({ supabase, scorecardId })
+
+    return { success: true, data: archivedMetrics, error: null }
+  } catch (error) {
+    if (error instanceof AuthError) {
+      return { success: false, data: null, error: 'Not authenticated' }
+    }
+
+    console.error('Unexpected error in getArchivedMetrics:', error)
+    return { success: false, data: null, error: 'An unexpected error occurred' }
+  }
+}

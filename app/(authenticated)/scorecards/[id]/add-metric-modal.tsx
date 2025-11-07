@@ -9,9 +9,19 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { EmployeeCombobox } from '@/components/ui/employee-combobox'
 import { createMetric } from '@/lib/actions/metrics'
+import { CopyMetricsForm } from './copy-metrics-form'
 import type { EmployeeWithProfile } from '@/lib/actions/employees'
+import type { Tables } from '@/lib/types/database.types'
+
+type Metric = Tables<'metrics'>
+
+interface MetricWithEntries extends Metric {
+  entries: any[]
+  owner?: any
+}
 
 interface AddMetricModalProps {
   open: boolean
@@ -19,6 +29,8 @@ interface AddMetricModalProps {
   scorecardId: string
   employees: EmployeeWithProfile[]
   currentUserId: string
+  scorecardOwnerId: string
+  copyableMetrics: MetricWithEntries[]
 }
 
 export function AddMetricModal({
@@ -27,9 +39,15 @@ export function AddMetricModal({
   scorecardId,
   employees,
   currentUserId,
+  scorecardOwnerId,
+  copyableMetrics,
 }: AddMetricModalProps) {
   const [isPending, startTransition] = useTransition()
   const [error, setError] = useState<string | null>(null)
+  const [activeTab, setActiveTab] = useState<'new' | 'copy'>('new')
+
+  // Only show Copy tab if there are copyable metrics
+  const showCopyTab = copyableMetrics.length > 0
 
   // Form state
   const [name, setName] = useState('')
@@ -37,7 +55,7 @@ export function AddMetricModal({
   const [cadence, setCadence] = useState<'weekly' | 'monthly' | 'quarterly'>('weekly')
   const [scoringMode, setScoringMode] = useState<'at_least' | 'at_most' | 'between' | 'yes_no'>('at_least')
   const [unit, setUnit] = useState('')
-  const [ownerId, setOwnerId] = useState(currentUserId)
+  const [ownerId, setOwnerId] = useState(scorecardOwnerId)
   const [targetValue, setTargetValue] = useState('')
   const [targetMin, setTargetMin] = useState('')
   const [targetMax, setTargetMax] = useState('')
@@ -49,7 +67,7 @@ export function AddMetricModal({
     setCadence('weekly')
     setScoringMode('at_least')
     setUnit('')
-    setOwnerId(currentUserId)
+    setOwnerId(scorecardOwnerId)
     setTargetValue('')
     setTargetMin('')
     setTargetMax('')
@@ -75,16 +93,30 @@ export function AddMetricModal({
     })
   }
 
+  const handleCopySuccess = () => {
+    onOpenChange(false)
+  }
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[525px]">
+      <DialogContent className="sm:max-w-[600px]">
         <DialogHeader>
-          <DialogTitle>Add New Metric</DialogTitle>
+          <DialogTitle>Add Metric</DialogTitle>
           <DialogDescription>
-            Create a new metric to track in your scorecard.
+            Create a new metric or copy from existing metrics.
           </DialogDescription>
         </DialogHeader>
-        <form onSubmit={handleSubmit}>
+
+        <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as 'new' | 'copy')}>
+          {showCopyTab && (
+            <TabsList className="grid w-full grid-cols-2">
+              <TabsTrigger value="new">New</TabsTrigger>
+              <TabsTrigger value="copy">Copy</TabsTrigger>
+            </TabsList>
+          )}
+
+          <TabsContent value="new" className="mt-4">
+            <form onSubmit={handleSubmit}>
           <div className="grid gap-4 py-4">
             {/* Name */}
             <div className="grid gap-2">
@@ -292,23 +324,36 @@ export function AddMetricModal({
               <p className="text-sm text-red-600">{error}</p>
             )}
           </div>
-          <DialogFooter>
-            <button
-              type="button"
-              onClick={() => onOpenChange(false)}
-              className="inline-flex items-center justify-center rounded-md text-sm font-medium border border-gray-300 bg-white hover:bg-gray-100 h-10 px-4 py-2"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={isPending || !name.trim()}
-              className="inline-flex items-center justify-center rounded-md text-sm font-medium bg-blue-600 text-white hover:bg-blue-700 h-10 px-4 py-2 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {isPending ? 'Creating...' : 'Create Metric'}
-            </button>
-          </DialogFooter>
-        </form>
+              <DialogFooter>
+                <button
+                  type="button"
+                  onClick={() => onOpenChange(false)}
+                  className="inline-flex items-center justify-center rounded-md text-sm font-medium border border-gray-300 bg-white hover:bg-gray-100 h-10 px-4 py-2"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isPending || !name.trim()}
+                  className="inline-flex items-center justify-center rounded-md text-sm font-medium bg-blue-600 text-white hover:bg-blue-700 h-10 px-4 py-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {isPending ? 'Creating...' : 'Create Metric'}
+                </button>
+              </DialogFooter>
+            </form>
+          </TabsContent>
+
+          {showCopyTab && (
+            <TabsContent value="copy" className="mt-4">
+              <CopyMetricsForm
+                scorecardId={scorecardId}
+                scorecardOwnerId={scorecardOwnerId}
+                metrics={copyableMetrics}
+                onSuccess={handleCopySuccess}
+              />
+            </TabsContent>
+          )}
+        </Tabs>
       </DialogContent>
     </Dialog>
   )
