@@ -56,7 +56,7 @@ export async function loadScorecardAggregate({
   const [
     { data: scorecard, error: scorecardError },
     { data: metricsData, error: metricsError },
-    { count: archivedCount, error: archivedCountError },
+    archivedCountResult,
     employees,
   ] = await Promise.all([
     supabase
@@ -79,6 +79,9 @@ export async function loadScorecardAggregate({
       .eq('is_archived', true),
     loadAllEmployees({ supabase }),
   ])
+
+  const archivedCount = archivedCountResult.count
+  const archivedCountError = archivedCountResult.error
 
   if (scorecardError || !scorecard) {
     console.error('Error loading scorecard', scorecardError)
