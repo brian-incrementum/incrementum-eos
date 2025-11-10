@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useTransition } from 'react'
+import { useState, useTransition, useMemo } from 'react'
 import {
   Dialog,
   DialogContent,
@@ -17,6 +17,7 @@ import type { EmployeeWithProfile } from '@/lib/actions/employees'
 import type { Tables } from '@/lib/types/database.types'
 
 type Metric = Tables<'metrics'>
+type Scorecard = Tables<'scorecards'>
 
 interface MetricWithEntries extends Metric {
   entries: any[]
@@ -26,20 +27,18 @@ interface MetricWithEntries extends Metric {
 interface AddMetricModalProps {
   open: boolean
   onOpenChange: (open: boolean) => void
-  scorecardId: string
+  scorecard: Scorecard
   employees: EmployeeWithProfile[]
   currentUserId: string
-  scorecardOwnerId: string
   copyableMetrics: MetricWithEntries[]
 }
 
 export function AddMetricModal({
   open,
   onOpenChange,
-  scorecardId,
+  scorecard,
   employees,
   currentUserId,
-  scorecardOwnerId,
   copyableMetrics,
 }: AddMetricModalProps) {
   const [isPending, startTransition] = useTransition()
@@ -49,13 +48,24 @@ export function AddMetricModal({
   // Only show Copy tab if there are copyable metrics
   const showCopyTab = copyableMetrics.length > 0
 
+  // Compute eligible owners based on scorecard type
+  // For role scorecards: only the scorecard owner
+  // For team scorecards: all employees (will be restricted by team membership in backend if needed)
+  const eligibleOwners = useMemo(() => {
+    if (scorecard.type === 'role') {
+      return employees.filter(emp => emp.profile_id === scorecard.owner_user_id)
+    }
+    // For team and other types, show all employees
+    return employees
+  }, [scorecard.type, scorecard.owner_user_id, employees])
+
   // Form state
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
   const [cadence, setCadence] = useState<'weekly' | 'monthly' | 'quarterly'>('weekly')
   const [scoringMode, setScoringMode] = useState<'at_least' | 'at_most' | 'between' | 'yes_no'>('at_least')
   const [unit, setUnit] = useState('')
-  const [ownerId, setOwnerId] = useState(scorecardOwnerId)
+  const [ownerId, setOwnerId] = useState(scorecard.owner_user_id)
   const [targetValue, setTargetValue] = useState('')
   const [targetMin, setTargetMin] = useState('')
   const [targetMax, setTargetMax] = useState('')
@@ -67,7 +77,7 @@ export function AddMetricModal({
     setCadence('weekly')
     setScoringMode('at_least')
     setUnit('')
-    setOwnerId(scorecardOwnerId)
+    setOwnerId(scorecard.owner_user_id)
     setTargetValue('')
     setTargetMin('')
     setTargetMax('')
@@ -82,7 +92,7 @@ export function AddMetricModal({
     const formData = new FormData(e.currentTarget)
 
     startTransition(async () => {
-      const result = await createMetric(scorecardId, formData)
+      const result = await createMetric(scorecard.id, formData)
 
       if (result.success) {
         resetForm()
@@ -216,7 +226,7 @@ export function AddMetricModal({
                 Owner *
               </label>
               <EmployeeCombobox
-                employees={employees}
+                employees={eligibleOwners}
                 value={ownerId}
                 onValueChange={setOwnerId}
                 placeholder="Select owner..."
@@ -346,8 +356,8 @@ export function AddMetricModal({
           {showCopyTab && (
             <TabsContent value="copy" className="mt-4">
               <CopyMetricsForm
-                scorecardId={scorecardId}
-                scorecardOwnerId={scorecardOwnerId}
+                scorecardId={scorecard.id}
+                scorecardOwnerId={scorecard.owner_user_id}
                 metrics={copyableMetrics}
                 onSuccess={handleCopySuccess}
               />

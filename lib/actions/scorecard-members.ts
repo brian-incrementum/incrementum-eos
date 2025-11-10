@@ -196,7 +196,32 @@ export async function addScorecardMember(
   error?: string
 }> {
   try {
-    const { supabase } = await requireUser()
+    const { supabase, user: currentUser } = await requireUser()
+
+    // Get the scorecard to check ownership
+    const { data: scorecard, error: scorecardError } = await supabase
+      .from('scorecards')
+      .select('owner_user_id')
+      .eq('id', scorecardId)
+      .single()
+
+    if (scorecardError || !scorecard) {
+      return { success: false, error: 'Scorecard not found' }
+    }
+
+    // Check if current user is the scorecard owner or an admin
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('is_system_admin')
+      .eq('id', currentUser.id)
+      .single()
+
+    const isOwner = scorecard.owner_user_id === currentUser.id
+    const isAdmin = profile?.is_system_admin === true
+
+    if (!isOwner && !isAdmin) {
+      return { success: false, error: 'Only the scorecard owner or admins can add members' }
+    }
 
     // Check if user is already a member
     const { data: existingMember } = await supabase

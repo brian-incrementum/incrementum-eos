@@ -255,10 +255,9 @@ export function ScorecardView({ scorecard, metrics, archivedMetrics: initialArch
       <AddMetricModal
         open={showAddMetricModal}
         onOpenChange={setShowAddMetricModal}
-        scorecardId={scorecard.id}
+        scorecard={scorecard}
         employees={employees}
         currentUserId={currentUserId}
-        scorecardOwnerId={scorecard.owner_user_id}
         copyableMetrics={copyableMetrics}
       />
 

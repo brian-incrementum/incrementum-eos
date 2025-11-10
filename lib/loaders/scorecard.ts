@@ -197,7 +197,9 @@ export async function loadScorecardAggregate({
       .select('*', { count: 'exact', head: true })
       .eq('scorecard_id', scorecardId)
       .eq('is_archived', true),
-    loadEligibleOwners({ supabase, scorecard }),
+    // Load ALL employees for sharing functionality
+    // Eligible owners are determined at the UI level for metric assignment
+    loadAllEmployees({ supabase }),
   ])
 
   const archivedCount = archivedCountResult.count
